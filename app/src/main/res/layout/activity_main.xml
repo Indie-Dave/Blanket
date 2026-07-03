@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:layout_marginBottom="24dp"
+        android:text="Checking Device Owner status..." />
+
+    <com.google.android.material.materialswitch.MaterialSwitch
+        android:id="@+id/dnsLockSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Lock DNS to family.cloudflare-dns.com"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/dnsResultText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:layout_marginBottom="32dp" />
+
+    <Button
+        android:id="@+id/openAccessibilityButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Open Accessibility Settings"
+        android:layout_marginBottom="12dp" />
+
+    <Button
+        android:id="@+id/copyAdbButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Copy ADB Device-Owner Command" />
+
+</LinearLayout>
