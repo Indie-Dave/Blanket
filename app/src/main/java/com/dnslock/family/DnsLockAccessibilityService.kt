@@ -10,7 +10,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 
 /**
- * Minimizes Settings when the screen title is "Weitere Verbindungseinstellungen"
+ * Navigates back one screen in Settings when the title is "Weitere Verbindungseinstellungen"
  * (including Samsung's hyphenated "Weitere Verbindungs-einstellungen").
  */
 class DnsLockAccessibilityService : AccessibilityService() {
@@ -90,7 +90,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (now - lastDismissAt < DISMISS_COOLDOWN_MS) return
 
         onTargetScreen = true
-        if (performGlobalAction(GLOBAL_ACTION_HOME)) {
+        if (performGlobalAction(GLOBAL_ACTION_BACK)) {
             lastDismissAt = now
             handler.postDelayed({ onTargetScreen = false }, RESET_DELAY_MS)
         } else {
