@@ -22,6 +22,11 @@ android {
         }
     }
 
+    // Replace existing install so permissions and app data survive debug rebuilds.
+    installation {
+        installOptions("-r")
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

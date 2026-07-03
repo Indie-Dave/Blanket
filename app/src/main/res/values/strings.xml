@@ -1,5 +1,6 @@
 <resources>
-    <string name="app_name">Family DNS Lock</string>
+    <string name="app_name">Blanket</string>
+    <string name="dns_status_indicator">DNS status indicator</string>
     <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
         Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch.
@@ -7,4 +8,11 @@
     <string name="accessibility_status_enabled">Hintergrundschutz: aktiv</string>
     <string name="accessibility_status_disabled">Hintergrundschutz: nicht aktiv — Berechtigung erforderlich</string>
     <string name="open_accessibility_settings">Barrierefreiheit aktivieren</string>
+    <string name="battery_status_enabled">Akku-Optimierung: deaktiviert</string>
+    <string name="battery_status_disabled">Akku-Optimierung: aktiv — App kann beendet werden</string>
+    <string name="disable_battery_optimization">Akku-Optimierung ausschalten</string>
+    <string name="notification_channel_name">DNS-Schutz</string>
+    <string name="notification_channel_description">Hält den Hintergrundschutz aktiv</string>
+    <string name="notification_title">Blanket aktiv</string>
+    <string name="notification_text">Schützt DNS-Einstellungen im Hintergrund</string>
 </resources>

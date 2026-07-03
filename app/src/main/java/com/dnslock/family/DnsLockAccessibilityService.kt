@@ -1,14 +1,23 @@
 package com.dnslock.family
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 
 /**
  * Minimizes Settings when the screen title is "Weitere Verbindungseinstellungen"
  * (including Samsung's hyphenated "Weitere Verbindungs-einstellungen").
  */
 class DnsLockAccessibilityService : AccessibilityService() {
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var onTargetScreen = false
+    private var lastDismissAt = 0L
 
     private val settingsPackages = setOf(
         "com.android.settings",
@@ -21,29 +30,89 @@ class DnsLockAccessibilityService : AccessibilityService() {
         "collapse_title"
     )
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        event ?: return
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
-            event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
-        ) {
-            return
-        }
+    private val recheckRunnable = Runnable { evaluateAndDismiss(fromRecheck = true) }
 
-        val pkg = event.packageName?.toString() ?: return
-        if (pkg !in settingsPackages) return
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        startProtectionService()
+    }
 
-        if (hasTargetScreenTitle(event)) {
-            performGlobalAction(GLOBAL_ACTION_HOME)
+    override fun onDestroy() {
+        handler.removeCallbacks(recheckRunnable)
+        stopService(Intent(this, ProtectionForegroundService::class.java))
+        super.onDestroy()
+    }
+
+    private fun startProtectionService() {
+        val intent = Intent(this, ProtectionForegroundService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
         }
     }
 
-    private fun hasTargetScreenTitle(event: AccessibilityEvent): Boolean {
-        for (i in 0 until event.text.size) {
-            if (isTargetScreenTitle(event.text[i]?.toString().orEmpty())) return true
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        event ?: return
+
+        val pkg = event.packageName?.toString()
+        if (pkg != null && pkg !in settingsPackages) {
+            onTargetScreen = false
+            handler.removeCallbacks(recheckRunnable)
+            return
         }
 
-        val root = rootInActiveWindow ?: return false
-        return findScreenTitle(root) != null
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> evaluateAndDismiss(fromRecheck = false)
+        }
+    }
+
+    private fun evaluateAndDismiss(fromRecheck: Boolean) {
+        val isTarget = hasTargetScreenTitle()
+
+        if (!isTarget) {
+            onTargetScreen = false
+            if (!fromRecheck) {
+                handler.removeCallbacks(recheckRunnable)
+                handler.postDelayed(recheckRunnable, RECHECK_DELAY_MS)
+            }
+            return
+        }
+
+        handler.removeCallbacks(recheckRunnable)
+
+        if (onTargetScreen) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastDismissAt < DISMISS_COOLDOWN_MS) return
+
+        onTargetScreen = true
+        if (performGlobalAction(GLOBAL_ACTION_HOME)) {
+            lastDismissAt = now
+            handler.postDelayed({ onTargetScreen = false }, RESET_DELAY_MS)
+        } else {
+            onTargetScreen = false
+            handler.postDelayed(recheckRunnable, RECHECK_DELAY_MS)
+        }
+    }
+
+    private fun hasTargetScreenTitle(): Boolean {
+        rootInActiveWindow?.let { if (findScreenTitle(it) != null) return true }
+
+        windows?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                val pkg = root.packageName?.toString() ?: return@forEach
+                if (pkg in settingsPackages && findScreenTitle(root) != null) return true
+            } finally {
+                root.recycle()
+            }
+        }
+        return false
     }
 
     private fun isTargetScreenTitle(text: String): Boolean {
@@ -72,7 +141,10 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
 
         for (i in 0 until node.childCount) {
-            findScreenTitle(node.getChild(i), depth + 1)?.let { return it }
+            val child = node.getChild(i)
+            val found = findScreenTitle(child, depth + 1)
+            child?.recycle()
+            if (found != null) return found
         }
         return null
     }
@@ -88,9 +160,15 @@ class DnsLockAccessibilityService : AccessibilityService() {
         return false
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() {
+        handler.removeCallbacks(recheckRunnable)
+        onTargetScreen = false
+    }
 
     companion object {
         private const val TARGET_TITLE = "Weitere Verbindungseinstellungen"
+        private const val DISMISS_COOLDOWN_MS = 600L
+        private const val RESET_DELAY_MS = 1200L
+        private const val RECHECK_DELAY_MS = 200L
     }
 }
