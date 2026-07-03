@@ -1,7 +1,10 @@
 <resources>
     <string name="app_name">Family DNS Lock</string>
+    <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
-        Watches for the Private DNS settings screen and exits it immediately
-        while the DNS lock is enabled, so the configured DNS cannot be changed.
+        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch.
     </string>
+    <string name="accessibility_status_enabled">Hintergrundschutz: aktiv</string>
+    <string name="accessibility_status_disabled">Hintergrundschutz: nicht aktiv — Berechtigung erforderlich</string>
+    <string name="open_accessibility_settings">Barrierefreiheit aktivieren</string>
 </resources>

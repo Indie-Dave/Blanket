@@ -9,10 +9,8 @@ android {
 
     defaultConfig {
         applicationId = "com.dnslock.family"
-        // minSdk 30 (Android 11) because DevicePolicyManager.setGlobalPrivateDns()
-        // was introduced in API 30. The S23 Ultra ships with Android 13/14, so
-        // this is not a real-world constraint for your device.
-        minSdk = 30
+        // minSdk 28 (Android 9) — Settings.Global private DNS keys are readable from API 28.
+        minSdk = 28
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"

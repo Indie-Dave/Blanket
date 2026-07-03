@@ -5,75 +5,92 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
- * Backup enforcement layer.
- *
- * This service does NOT set DNS -- only Device Owner + setGlobalPrivateDns()
- * can do that (see DnsPolicyManager). What this does is watch for the
- * system Settings app opening a screen that looks like the Private DNS
- * screen, and immediately press "back" to exit it while the lock is
- * enabled -- as a second line of defense on top of the Device Owner
- * lock (which, once active, should already grey out the field).
- *
- * CAVEATS:
- * - Samsung's One UI reskins Settings but keeps the underlying package name
- *   "com.android.settings" in most firmware builds; the exact Activity/
- *   Fragment class name for the Private DNS screen can still vary by One UI
- *   version. If this doesn't trigger on your S23 Ultra, connect via adb
- *   while sitting on that screen and run:
- *       adb shell dumpsys window windows | grep mCurrentFocus
- *   then add the class name you see to `dnsClassHints` below.
- * - This is a heuristic, not a hard guarantee -- a fast enough tap sequence
- *   could theoretically slip through before the event fires. The Device
- *   Owner lock is what actually prevents the DNS value from changing even
- *   if the screen is briefly visible.
+ * Minimizes Settings when the screen title is "Weitere Verbindungseinstellungen"
+ * (including Samsung's hyphenated "Weitere Verbindungs-einstellungen").
  */
 class DnsLockAccessibilityService : AccessibilityService() {
 
     private val settingsPackages = setOf(
-        "com.android.settings"
+        "com.android.settings",
+        "com.samsung.android.settings"
     )
 
-    private val dnsClassHints = listOf(
-        "Dns",
-        "NetworkDashboard",
-        "NetworkProviderSettings",
-        "ConnectedDeviceDashboard"
-    )
-
-    private val dnsTextHints = listOf(
-        "Private DNS",
-        "private DNS"
+    private val toolbarTitleViewIdSuffixes = listOf(
+        "action_bar_title",
+        "toolbar_title",
+        "collapse_title"
     )
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-        if (!DnsPolicyManager.isLockEnabledPref(this)) return
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) {
+            return
+        }
 
         val pkg = event.packageName?.toString() ?: return
         if (pkg !in settingsPackages) return
 
-        val className = event.className?.toString().orEmpty()
-        val classLooksLikeDns = dnsClassHints.any { className.contains(it, ignoreCase = true) }
-
-        val screenLooksLikeDns = classLooksLikeDns || containsDnsText(rootInActiveWindow, depth = 0)
-
-        if (screenLooksLikeDns) {
-            performGlobalAction(GLOBAL_ACTION_BACK)
+        if (hasTargetScreenTitle(event)) {
+            performGlobalAction(GLOBAL_ACTION_HOME)
         }
     }
 
-    private fun containsDnsText(node: AccessibilityNodeInfo?, depth: Int): Boolean {
-        if (node == null || depth > 12) return false
-        val text = node.text?.toString().orEmpty()
-        val desc = node.contentDescription?.toString().orEmpty()
-        if (dnsTextHints.any { text.contains(it) || desc.contains(it) }) return true
+    private fun hasTargetScreenTitle(event: AccessibilityEvent): Boolean {
+        for (i in 0 until event.text.size) {
+            if (isTargetScreenTitle(event.text[i]?.toString().orEmpty())) return true
+        }
+
+        val root = rootInActiveWindow ?: return false
+        return findScreenTitle(root) != null
+    }
+
+    private fun isTargetScreenTitle(text: String): Boolean {
+        return normalizeTitle(text).equals(TARGET_TITLE, ignoreCase = true)
+    }
+
+    private fun normalizeTitle(text: String): String =
+        text.trim()
+            .replace("-", "")
+            .replace(Regex("\\s+"), " ")
+
+    private fun findScreenTitle(node: AccessibilityNodeInfo?, depth: Int = 0): String? {
+        if (node == null || depth > 12) return null
+
+        val viewId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString()?.trim().orEmpty()
+        val desc = node.contentDescription?.toString()?.trim().orEmpty()
+
+        for (candidate in listOf(text, desc)) {
+            if (candidate.isEmpty() || !isTargetScreenTitle(candidate)) continue
+
+            val looksLikeToolbar = toolbarTitleViewIdSuffixes.any { viewId.endsWith(it) }
+            if (looksLikeToolbar || !isInsideClickableRow(node)) {
+                return candidate
+            }
+        }
 
         for (i in 0 until node.childCount) {
-            if (containsDnsText(node.getChild(i), depth + 1)) return true
+            findScreenTitle(node.getChild(i), depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    private fun isInsideClickableRow(node: AccessibilityNodeInfo): Boolean {
+        var current: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (current != null && depth < 6) {
+            if (current.isClickable) return true
+            current = current.parent
+            depth++
         }
         return false
     }
 
     override fun onInterrupt() {}
+
+    companion object {
+        private const val TARGET_TITLE = "Weitere Verbindungseinstellungen"
+    }
 }

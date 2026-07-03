@@ -1,72 +1,49 @@
 package com.dnslock.family
 
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Context
-import android.os.Build
+import android.provider.Settings
 
 /**
- * Wraps the DevicePolicyManager calls needed to actually control the
- * system-wide Private DNS setting.
- *
- * IMPORTANT: setGlobalPrivateDns() only works if this app has been
- * provisioned as the device's Device Owner. A normal, non-privileged app
- * has no API that can touch this setting -- that's intentional on
- * Android's part, so a rogue app can't silently hijack your DNS.
- *
- * See README.md for how to provision Device Owner via adb.
+ * Read-only inspection of the device's Private DNS setting via Settings.Global.
  */
 object DnsPolicyManager {
 
-    const val FAMILY_DNS_HOST = "family.cloudflare-dns.com"
-    private const val PREFS_NAME = "dns_lock_prefs"
-    private const val KEY_ENABLED = "dns_lock_enabled"
+    const val TARGET_HOST = "family.cloudflare-dns.com"
 
-    private fun admin(context: Context) =
-        ComponentName(context, DnsDeviceAdminReceiver::class.java)
+    private const val KEY_PRIVATE_DNS_MODE = "private_dns_mode"
+    private const val KEY_PRIVATE_DNS_SPECIFIER = "private_dns_specifier"
+    private const val MODE_OFF = "off"
+    private const val MODE_OPPORTUNISTIC = "opportunistic"
+    private const val MODE_PROVIDER_HOSTNAME = "hostname"
 
-    private fun dpm(context: Context): DevicePolicyManager =
-        context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+    fun getPrivateDnsMode(context: Context): String =
+        Settings.Global.getString(context.contentResolver, KEY_PRIVATE_DNS_MODE)
+            ?: MODE_OFF
 
-    fun isDeviceOwner(context: Context): Boolean {
-        return dpm(context).isDeviceOwnerApp(context.packageName)
+    fun getPrivateDnsHost(context: Context): String? {
+        if (getPrivateDnsMode(context) != MODE_PROVIDER_HOSTNAME) {
+            return null
+        }
+        return Settings.Global.getString(context.contentResolver, KEY_PRIVATE_DNS_SPECIFIER)
+            ?.trim()?.lowercase()?.removeSuffix(".")
     }
 
-    /** Locks Private DNS to family.cloudflare-dns.com. Returns true on success. */
-    fun lockFamilyDns(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
-        if (!isDeviceOwner(context)) return false
-
-        dpm(context).setGlobalPrivateDns(
-            admin(context),
-            DevicePolicyManager.PRIVATE_DNS_MODE_PROVIDER_HOSTNAME,
-            FAMILY_DNS_HOST
-        )
-        setPrefEnabled(context, true)
-        return true
+    fun isFamilyDnsSet(context: Context): Boolean {
+        if (getPrivateDnsMode(context) != MODE_PROVIDER_HOSTNAME) {
+            return false
+        }
+        return getPrivateDnsHost(context) == TARGET_HOST
     }
 
-    /** Releases the DNS lock, returning the device to opportunistic (default) mode. */
-    fun unlockDns(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
-        if (!isDeviceOwner(context)) return false
-
-        dpm(context).setGlobalPrivateDns(
-            admin(context),
-            DevicePolicyManager.PRIVATE_DNS_MODE_OPPORTUNISTIC
-        )
-        setPrefEnabled(context, false)
-        return true
-    }
-
-    fun isLockEnabledPref(context: Context): Boolean =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_ENABLED, false)
-
-    private fun setPrefEnabled(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_ENABLED, enabled)
-            .apply()
+    fun formatDnsStatus(context: Context): String {
+        return when (val mode = getPrivateDnsMode(context)) {
+            MODE_OFF -> "Private DNS is off."
+            MODE_OPPORTUNISTIC -> "Private DNS: Automatic (opportunistic)."
+            MODE_PROVIDER_HOSTNAME -> {
+                val host = getPrivateDnsHost(context) ?: "unknown"
+                "Private DNS: $host"
+            }
+            else -> "Private DNS mode: $mode"
+        }
     }
 }

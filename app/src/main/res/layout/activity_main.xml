@@ -6,38 +6,34 @@
     android:padding="24dp">
 
     <TextView
-        android:id="@+id/statusText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textSize="16sp"
-        android:layout_marginBottom="24dp"
-        android:text="Checking Device Owner status..." />
-
-    <com.google.android.material.materialswitch.MaterialSwitch
-        android:id="@+id/dnsLockSwitch"
+        android:id="@+id/dnsSetIndicator"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Lock DNS to family.cloudflare-dns.com"
-        android:layout_marginBottom="16dp" />
+        android:background="@drawable/dns_indicator_ring_unset"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp"
+        android:text="@string/is_dns_set"
+        android:textSize="16sp"
+        android:layout_marginBottom="24dp" />
 
     <TextView
         android:id="@+id/dnsResultText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:textSize="14sp"
-        android:layout_marginBottom="32dp" />
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/accessibilityStatusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:layout_marginBottom="12dp" />
 
     <Button
         android:id="@+id/openAccessibilityButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Open Accessibility Settings"
-        android:layout_marginBottom="12dp" />
-
-    <Button
-        android:id="@+id/copyAdbButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Copy ADB Device-Owner Command" />
+        android:text="@string/open_accessibility_settings" />
 
 </LinearLayout>
