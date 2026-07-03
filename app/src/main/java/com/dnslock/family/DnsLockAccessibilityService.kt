@@ -18,6 +18,8 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var onTargetScreen = false
     private var lastDismissAt = 0L
+    private var lastBlockedDismissAt = 0L
+    private var lastBlockedPackage: String? = null
 
     private val settingsPackages = setOf(
         "com.android.settings",
@@ -55,6 +57,11 @@ class DnsLockAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
 
+        when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> evaluateBlockedApp(event)
+        }
+
         val pkg = event.packageName?.toString()
         if (pkg != null && pkg !in settingsPackages) {
             onTargetScreen = false
@@ -67,6 +74,78 @@ class DnsLockAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> evaluateAndDismiss(fromRecheck = false)
+        }
+    }
+
+    private fun evaluateBlockedApp(event: AccessibilityEvent) {
+        val pkg = resolveForegroundPackage(event) ?: return
+        maybeDismissBlockedApp(pkg, findWindowTitle())
+    }
+
+    private fun resolveForegroundPackage(event: AccessibilityEvent): String? {
+        event.packageName?.toString()?.let { return it }
+
+        rootInActiveWindow?.packageName?.toString()?.let { return it }
+
+        windows?.forEach { window ->
+            if (!window.isActive || window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                root.packageName?.toString()?.let { return it }
+            } finally {
+                root.recycle()
+            }
+        }
+        return null
+    }
+
+    private fun findWindowTitle(): String? {
+        rootInActiveWindow?.let { title -> findToolbarTitle(title)?.let { return it } }
+
+        windows?.forEach { window ->
+            if (!window.isActive || window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                findToolbarTitle(root)?.let { return it }
+            } finally {
+                root.recycle()
+            }
+        }
+        return null
+    }
+
+    private fun findToolbarTitle(node: AccessibilityNodeInfo?, depth: Int = 0): String? {
+        if (node == null || depth > 12) return null
+
+        val viewId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString()?.trim().orEmpty()
+        val desc = node.contentDescription?.toString()?.trim().orEmpty()
+
+        for (candidate in listOf(text, desc)) {
+            if (candidate.isEmpty()) continue
+            val looksLikeToolbar = toolbarTitleViewIdSuffixes.any { viewId.endsWith(it) }
+            if (looksLikeToolbar) return candidate
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            val found = findToolbarTitle(child, depth + 1)
+            child?.recycle()
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun maybeDismissBlockedApp(pkg: String, windowTitle: String? = null) {
+        if (pkg == packageName) return
+        if (!BlockedAppsManager.isAppBlocked(this, pkg, windowTitle)) return
+
+        val now = System.currentTimeMillis()
+        if (pkg == lastBlockedPackage && now - lastBlockedDismissAt < DISMISS_COOLDOWN_MS) return
+
+        if (performGlobalAction(GLOBAL_ACTION_HOME)) {
+            lastBlockedDismissAt = now
+            lastBlockedPackage = pkg
         }
     }
 
