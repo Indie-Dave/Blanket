@@ -20,6 +20,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private var lastDismissAt = 0L
     private var lastBlockedDismissAt = 0L
     private var lastBlockedPackage: String? = null
+    private var lastUninstallBlockAt = 0L
 
     private val settingsPackages = setOf(
         "com.android.settings",
@@ -59,7 +60,11 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> evaluateBlockedApp(event)
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                evaluateBlockedApp(event)
+                maybeBlockUninstall(event)
+            }
         }
 
         val pkg = event.packageName?.toString()
@@ -136,6 +141,41 @@ class DnsLockAccessibilityService : AccessibilityService() {
         return null
     }
 
+    private fun maybeBlockUninstall(event: AccessibilityEvent) {
+        val pkg = resolveForegroundPackage(event) ?: return
+
+        rootInActiveWindow?.let { root ->
+            try {
+                if (blockUninstallIfNeeded(pkg, root)) return
+            } finally {
+                root.recycle()
+            }
+        }
+
+        windows?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                val windowPkg = root.packageName?.toString() ?: pkg
+                if (blockUninstallIfNeeded(windowPkg, root)) return
+            } finally {
+                root.recycle()
+            }
+        }
+    }
+
+    private fun blockUninstallIfNeeded(foregroundPackage: String, root: AccessibilityNodeInfo): Boolean {
+        if (!UninstallGuard.isUninstallAttempt(this, foregroundPackage, root)) return false
+
+        val now = System.currentTimeMillis()
+        if (now - lastUninstallBlockAt < DISMISS_COOLDOWN_MS) return true
+
+        if (performGlobalAction(GLOBAL_ACTION_HOME)) {
+            lastUninstallBlockAt = now
+        }
+        return true
+    }
+
     private fun maybeDismissBlockedApp(pkg: String, windowTitle: String? = null) {
         if (pkg == packageName) return
         if (!BlockedAppsManager.isAppBlocked(this, pkg, windowTitle)) return
@@ -150,6 +190,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     private fun evaluateAndDismiss(fromRecheck: Boolean) {
+        if (!PasswordManager.isDnsScreenLockEnabled(this)) return
+        if (PasswordManager.isDnsUnlocked(this)) return
+
         val isTarget = hasTargetScreenTitle()
 
         if (!isTarget) {
