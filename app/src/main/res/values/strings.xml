@@ -3,45 +3,55 @@
     <string name="dns_status_indicator">DNS status indicator</string>
     <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
-        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch, schließt gesperrte Apps und verhindert die Deinstallation von Blanket.
+        Automatically minimizes the Settings app on network DNS screens, closes blocked apps, and prevents uninstalling Blanket.
     </string>
-    <string name="blocked_apps_title">Gesperrte Apps</string>
-    <string name="blocked_apps_hint">App-Namen eingeben (z. B. Chrome, YouTube)</string>
-    <string name="add_blocked_app">Zur Liste hinzufügen</string>
-    <string name="remove_blocked_app">Entfernen</string>
-    <string name="blocked_apps_empty">Keine Apps in der Liste</string>
-    <string name="blocked_app_added">%1$s zur Liste hinzugefügt</string>
-    <string name="blocked_app_duplicate">%1$s ist bereits in der Liste</string>
-    <string name="accessibility_status_enabled">Hintergrundschutz: aktiv (inkl. Deinstallationsschutz)</string>
-    <string name="accessibility_status_disabled">Hintergrundschutz: nicht aktiv — Berechtigung erforderlich</string>
-    <string name="open_accessibility_settings">Barrierefreiheit aktivieren</string>
-    <string name="battery_status_enabled">Akku-Optimierung: deaktiviert</string>
-    <string name="battery_status_disabled">Akku-Optimierung: aktiv — App kann beendet werden</string>
-    <string name="disable_battery_optimization">Akku-Optimierung ausschalten</string>
-    <string name="notification_channel_name">DNS-Schutz</string>
-    <string name="notification_channel_description">Hält den Hintergrundschutz aktiv</string>
-    <string name="notification_title">Blanket aktiv</string>
-    <string name="notification_text">Schützt DNS-Einstellungen im Hintergrund</string>
-    <string name="password_section_title">Passwort-Schutz</string>
-    <string name="password_status_set">Passwort ist festgelegt</string>
-    <string name="password_status_not_set">Kein Passwort festgelegt</string>
-    <string name="set_password">Passwort festlegen</string>
-    <string name="change_password">Passwort ändern</string>
-    <string name="enter_current_password">Aktuelles Passwort eingeben</string>
-    <string name="enter_password_title">Passwort eingeben</string>
-    <string name="password_hint">Passwort</string>
-    <string name="confirm_password_hint">Passwort bestätigen</string>
+    <string name="blocked_apps_title">Blocked apps</string>
+    <string name="blocked_apps_hint">Enter app name (e.g. Chrome, YouTube)</string>
+    <string name="add_blocked_app">Add to list</string>
+    <string name="remove_blocked_app">Remove</string>
+    <string name="blocked_apps_empty">No apps on the list</string>
+    <string name="blocked_app_added">%1$s added to the list</string>
+    <string name="blocked_app_duplicate">%1$s is already on the list</string>
+    <string name="accessibility_status_enabled">Background protection: active (includes uninstall protection)</string>
+    <string name="accessibility_status_disabled">Background protection: inactive — permission required</string>
+    <string name="open_accessibility_settings">Enable accessibility</string>
+    <string name="battery_status_enabled">Battery optimization: disabled</string>
+    <string name="battery_status_disabled">Battery optimization: active — app may be stopped</string>
+    <string name="disable_battery_optimization">Disable battery optimization</string>
+    <string name="notification_channel_name">DNS protection</string>
+    <string name="notification_channel_description">Keeps background protection running</string>
+    <string name="notification_title">Blanket active</string>
+    <string name="notification_text">Protecting DNS settings in the background</string>
+    <string name="password_section_title">Password protection</string>
+    <string name="password_status_set">Password is set</string>
+    <string name="password_status_not_set">No password set</string>
+    <string name="set_password">Set password</string>
+    <string name="change_password">Change password</string>
+    <string name="enter_current_password">Enter current password</string>
+    <string name="enter_password_title">Enter password</string>
+    <string name="password_hint">Password</string>
+    <string name="confirm_password_hint">Confirm password</string>
     <string name="password_confirm">OK</string>
-    <string name="password_mismatch">Passwörter stimmen nicht überein</string>
-    <string name="password_invalid">Passwort muss mindestens 4 Zeichen haben</string>
-    <string name="password_incorrect">Falsches Passwort</string>
-    <string name="password_set_success">Passwort gespeichert</string>
-    <string name="password_required">Bitte zuerst ein Passwort festlegen</string>
-    <string name="dns_screen_lock_title">DNS-Bildschirmsperre</string>
-    <string name="dns_screen_lock_summary">Verhindert den Zugriff auf DNS-Einstellungen</string>
-    <string name="unlock_dns_block">DNS-Sperre temporär entsperren</string>
-    <string name="lock_dns_block">DNS-Sperre wieder aktivieren</string>
-    <string name="dns_unlocked_status">DNS-Sperre entsperrt bis %1$s</string>
-    <string name="dns_locked_status">DNS-Sperre ist aktiv</string>
-    <string name="dns_unlock_disabled">DNS-Bildschirmsperre ist deaktiviert</string>
+    <string name="password_mismatch">Passwords do not match</string>
+    <string name="password_invalid">Password must be at least 4 characters</string>
+    <string name="password_incorrect">Incorrect password</string>
+    <string name="password_set_success">Password saved</string>
+    <string name="password_required">Please set a password first</string>
+    <string name="dns_screen_lock_title">DNS screen lock</string>
+    <string name="dns_screen_lock_summary">Prevents access to DNS settings</string>
+    <string name="unlock_dns_block">Temporarily unlock DNS block</string>
+    <string name="lock_dns_block">Re-enable DNS block</string>
+    <string name="dns_unlocked_status">DNS block unlocked until %1$s</string>
+    <string name="dns_locked_status">DNS block is active</string>
+    <string name="dns_unlock_disabled">DNS screen lock is disabled</string>
+    <string name="dns_status_off">Private DNS is off.</string>
+    <string name="dns_status_automatic">Private DNS: Automatic (opportunistic).</string>
+    <string name="dns_status_host">Private DNS: %1$s</string>
+    <string name="dns_status_unknown_host">unknown</string>
+    <string name="dns_status_mode">Private DNS mode: %1$s</string>
+
+    <string-array name="dns_lock_target_titles">
+        <item>More connection settings</item>
+        <item>Additional connection settings</item>
+    </string-array>
 </resources>

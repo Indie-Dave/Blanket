@@ -10,12 +10,17 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 
 /**
- * Navigates back one screen in Settings when the title is "Weitere Verbindungseinstellungen"
- * (including Samsung's hyphenated "Weitere Verbindungs-einstellungen").
+ * Navigates back one screen in Settings when the toolbar title matches a known
+ * DNS settings screen for the current system locale (including Samsung hyphen variants).
  */
 class DnsLockAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
+    private val targetTitles: Set<String> by lazy {
+        resources.getStringArray(R.array.dns_lock_target_titles)
+            .map(::normalizeTitle)
+            .toSet()
+    }
     private var onTargetScreen = false
     private var lastDismissAt = 0L
     private var lastBlockedDismissAt = 0L
@@ -238,13 +243,14 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     private fun isTargetScreenTitle(text: String): Boolean {
-        return normalizeTitle(text).equals(TARGET_TITLE, ignoreCase = true)
+        return normalizeTitle(text) in targetTitles
     }
 
     private fun normalizeTitle(text: String): String =
         text.trim()
             .replace("-", "")
             .replace(Regex("\\s+"), " ")
+            .lowercase()
 
     private fun findScreenTitle(node: AccessibilityNodeInfo?, depth: Int = 0): String? {
         if (node == null || depth > 12) return null
@@ -288,7 +294,6 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        private const val TARGET_TITLE = "Weitere Verbindungseinstellungen"
         private const val DISMISS_COOLDOWN_MS = 600L
         private const val RESET_DELAY_MS = 1200L
         private const val RECHECK_DELAY_MS = 200L

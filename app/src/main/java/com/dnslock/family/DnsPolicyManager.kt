@@ -37,13 +37,14 @@ object DnsPolicyManager {
 
     fun formatDnsStatus(context: Context): String {
         return when (val mode = getPrivateDnsMode(context)) {
-            MODE_OFF -> "Private DNS is off."
-            MODE_OPPORTUNISTIC -> "Private DNS: Automatic (opportunistic)."
+            MODE_OFF -> context.getString(R.string.dns_status_off)
+            MODE_OPPORTUNISTIC -> context.getString(R.string.dns_status_automatic)
             MODE_PROVIDER_HOSTNAME -> {
-                val host = getPrivateDnsHost(context) ?: "unknown"
-                "Private DNS: $host"
+                val host = getPrivateDnsHost(context)
+                    ?: context.getString(R.string.dns_status_unknown_host)
+                context.getString(R.string.dns_status_host, host)
             }
-            else -> "Private DNS mode: $mode"
+            else -> context.getString(R.string.dns_status_mode, mode)
         }
     }
 }
