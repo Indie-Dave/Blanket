@@ -1,8 +1,6 @@
 package com.dnslock.family
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -23,9 +21,8 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
     private var onTargetScreen = false
     private var lastDismissAt = 0L
-    private var lastBlockedDismissAt = 0L
-    private var lastBlockedPackage: String? = null
     private var lastUninstallBlockAt = 0L
+    private val blockedSuppressUntil = mutableMapOf<String, Long>()
 
     private val settingsPackages = setOf(
         "com.android.settings",
@@ -42,32 +39,23 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        startProtectionService()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(recheckRunnable)
-        stopService(Intent(this, ProtectionForegroundService::class.java))
         super.onDestroy()
-    }
-
-    private fun startProtectionService() {
-        val intent = Intent(this, ProtectionForegroundService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         event ?: return
 
         when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                evaluateBlockedApp(event)
+                maybeBlockUninstall(event)
+            }
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                evaluateBlockedApp(event)
                 maybeBlockUninstall(event)
             }
         }
@@ -173,24 +161,26 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (!UninstallGuard.isUninstallAttempt(this, foregroundPackage, root)) return false
 
         val now = System.currentTimeMillis()
-        if (now - lastUninstallBlockAt < DISMISS_COOLDOWN_MS) return true
+        if (now - lastUninstallBlockAt < UNINSTALL_SUPPRESS_MS) return true
 
         if (performGlobalAction(GLOBAL_ACTION_HOME)) {
             lastUninstallBlockAt = now
+            ProtectionInfoPopup.showUninstallBlocked(this)
         }
         return true
     }
 
     private fun maybeDismissBlockedApp(pkg: String, windowTitle: String? = null) {
         if (pkg == packageName) return
-        if (!BlockedAppsManager.isAppBlocked(this, pkg, windowTitle)) return
+        val matchedKeyword = BlockedAppsManager.findMatchingBlockedName(this, pkg, windowTitle) ?: return
 
         val now = System.currentTimeMillis()
-        if (pkg == lastBlockedPackage && now - lastBlockedDismissAt < DISMISS_COOLDOWN_MS) return
+        if (now < blockedSuppressUntil.getOrDefault(pkg, 0L)) return
 
         if (performGlobalAction(GLOBAL_ACTION_HOME)) {
-            lastBlockedDismissAt = now
-            lastBlockedPackage = pkg
+            blockedSuppressUntil[pkg] = now + BLOCKED_APP_SUPPRESS_MS
+            val appName = BlockedAppsManager.getAppDisplayName(this, pkg, windowTitle)
+            ProtectionInfoPopup.showBlockedApp(this, appName, matchedKeyword)
         }
     }
 
@@ -295,6 +285,8 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val DISMISS_COOLDOWN_MS = 600L
+        private const val BLOCKED_APP_SUPPRESS_MS = 4_000L
+        private const val UNINSTALL_SUPPRESS_MS = 4_000L
         private const val RESET_DELAY_MS = 1200L
         private const val RECHECK_DELAY_MS = 200L
     }

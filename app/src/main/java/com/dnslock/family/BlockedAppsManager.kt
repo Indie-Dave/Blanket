@@ -36,20 +36,43 @@ object BlockedAppsManager {
         context: Context,
         packageName: String,
         windowTitle: String? = null
-    ): Boolean {
-        val blocked = readNames(context)
-        if (blocked.isEmpty()) return false
+    ): Boolean = findMatchingBlockedName(context, packageName, windowTitle) != null
 
+    fun findMatchingBlockedName(
+        context: Context,
+        packageName: String,
+        windowTitle: String? = null
+    ): String? {
+        val blocked = readNames(context)
+        if (blocked.isEmpty()) return null
+
+        val candidates = buildMatchCandidates(context, packageName, windowTitle)
+        return blocked.firstOrNull { blockedName ->
+            candidates.any { candidate -> namesMatch(blockedName, candidate) }
+        }
+    }
+
+    fun getAppDisplayName(
+        context: Context,
+        packageName: String,
+        windowTitle: String? = null
+    ): String {
+        return getAppLabel(context, packageName)
+            ?: windowTitle?.trim()?.takeIf { it.isNotEmpty() }
+            ?: packageName.substringAfterLast('.')
+    }
+
+    private fun buildMatchCandidates(
+        context: Context,
+        packageName: String,
+        windowTitle: String?
+    ): List<String> {
         val label = getAppLabel(context, packageName)
-        val candidates = buildList {
+        return buildList {
             add(packageName)
             label?.let { add(it) }
             windowTitle?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
             add(packageName.substringAfterLast('.'))
-        }
-
-        return blocked.any { blockedName ->
-            candidates.any { candidate -> namesMatch(blockedName, candidate) }
         }
     }
 

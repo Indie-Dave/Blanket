@@ -1,9 +1,6 @@
 package com.dnslock.family
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -12,9 +9,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.text.DateFormat
 import java.util.Date
@@ -35,10 +30,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var unlockDnsButton: Button
 
     private var suppressDnsSwitchCallback = false
-
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { refreshStatus() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,8 +73,6 @@ class MainActivity : AppCompatActivity() {
             onUnlockDnsClicked()
         }
 
-        requestNotificationPermissionIfNeeded()
-        ensureProtectionServiceRunning()
         refreshStatus()
         refreshBlockedAppsList()
         refreshPasswordAndDnsStatus()
@@ -91,7 +80,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        ensureProtectionServiceRunning()
         refreshStatus()
         refreshBlockedAppsList()
         refreshPasswordAndDnsStatus()
@@ -236,26 +224,6 @@ class MainActivity : AppCompatActivity() {
             row.addView(label)
             row.addView(removeButton)
             blockedAppsListContainer.addView(row)
-        }
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
-
-    private fun ensureProtectionServiceRunning() {
-        if (!AccessibilityHelper.isServiceEnabled(this)) return
-        val intent = Intent(this, ProtectionForegroundService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
         }
     }
 
