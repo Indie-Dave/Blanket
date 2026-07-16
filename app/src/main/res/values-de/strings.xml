@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS-Statusanzeige</string>
     <string name="is_dns_set">Ist DNS gesetzt?</string>
     <string name="accessibility_service_description">
-        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch, schließt gesperrte Apps und verhindert die Deinstallation von Blanket.
+        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch, schließt gesperrte Apps und Webseiten und verhindert die Deinstallation von Blanket.
     </string>
     <string name="blocked_apps_title">Gesperrte Apps</string>
     <string name="blocked_apps_hint">App-Namen eingeben (z. B. Chrome, YouTube)</string>
@@ -15,6 +15,16 @@
     <string name="app_closed_title">App geschlossen</string>
     <string name="app_closed_blocked_reason">%1$s wurde geschlossen, weil es dem Sperrlisten-Begriff „%2$s“ entspricht.</string>
     <string name="app_closed_uninstall_reason">Blanket kann nicht deinstalliert werden, solange der Schutz aktiv ist.</string>
+    <string name="blocked_sites_title">Gesperrte Webseiten</string>
+    <string name="blocked_sites_summary">Funktioniert in Chrome, Samsung Internet, Firefox und Brave. Sperrt die Domain und ihre Subdomains.</string>
+    <string name="blocked_sites_hint">Webseite eingeben (z. B. youtube.com)</string>
+    <string name="add_blocked_site">Webseite hinzufügen</string>
+    <string name="blocked_sites_empty">Keine Webseiten in der Liste</string>
+    <string name="blocked_site_added">%1$s zur Liste hinzugefügt</string>
+    <string name="blocked_site_duplicate">%1$s ist bereits in der Liste</string>
+    <string name="blocked_site_invalid">Gültige Webseite eingeben, z. B. youtube.com</string>
+    <string name="site_blocked_title">Webseite gesperrt</string>
+    <string name="site_blocked_reason">%1$s steht auf deiner Sperrliste — zu Google weitergeleitet.</string>
     <string name="accessibility_status_enabled">Hintergrundschutz: aktiv (inkl. Deinstallationsschutz)</string>
     <string name="accessibility_status_disabled">Hintergrundschutz: nicht aktiv — Berechtigung erforderlich</string>
     <string name="open_accessibility_settings">Barrierefreiheit aktivieren</string>

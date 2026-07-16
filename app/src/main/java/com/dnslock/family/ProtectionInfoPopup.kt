@@ -27,6 +27,14 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showBlockedSite(context: Context, domain: String) {
+        show(
+            context = context,
+            title = context.getString(R.string.site_blocked_title),
+            message = context.getString(R.string.site_blocked_reason, domain)
+        )
+    }
+
     fun showUninstallBlocked(context: Context) {
         show(
             context = context,

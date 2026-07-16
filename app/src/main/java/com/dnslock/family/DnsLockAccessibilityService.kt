@@ -1,6 +1,10 @@
 package com.dnslock.family
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -10,6 +14,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 /**
  * Navigates back one screen in Settings when the toolbar title matches a known
  * DNS settings screen for the current system locale (including Samsung hyphen variants).
+ * Also redirects browsers away from blocked websites to Google.
  */
 class DnsLockAccessibilityService : AccessibilityService() {
 
@@ -29,6 +34,35 @@ class DnsLockAccessibilityService : AccessibilityService() {
         "com.samsung.android.settings"
     )
 
+    private val browserPackages = setOf(
+        "com.android.chrome",
+        "com.chrome.beta",
+        "com.chrome.dev",
+        "com.sec.android.app.sbrowser",
+        "com.sec.android.app.sbrowser.beta",
+        "org.mozilla.firefox",
+        "org.mozilla.firefox_beta",
+        "org.mozilla.fenix",
+        "com.brave.browser",
+        "com.brave.browser_beta",
+        "com.brave.browser_nightly"
+    )
+
+    private val urlBarViewIdSuffixes = listOf(
+        "url_bar",
+        "location_bar_edit_text",
+        "mozac_browser_toolbar_url_view",
+        "url_view",
+        "sites_bar",
+        "toolbar_url_view",
+        "search_box_text",
+        "omnibox_text",
+        "url_bar_title"
+    )
+
+    private var lastBlockedUrlSuppressUntil = 0L
+    private var redirectInProgress = false
+
     private val toolbarTitleViewIdSuffixes = listOf(
         "action_bar_title",
         "toolbar_title",
@@ -42,7 +76,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(recheckRunnable)
+        handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -53,10 +87,14 @@ class DnsLockAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 evaluateBlockedApp(event)
                 maybeBlockUninstall(event)
+                evaluateBlockedSite(event)
             }
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
                 maybeBlockUninstall(event)
+                evaluateBlockedSite(event)
             }
         }
 
@@ -184,6 +222,229 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun evaluateBlockedSite(event: AccessibilityEvent) {
+        if (redirectInProgress) return
+
+        val pkg = resolveForegroundPackage(event) ?: return
+        if (pkg !in browserPackages) return
+
+        val now = System.currentTimeMillis()
+        if (now < lastBlockedUrlSuppressUntil) return
+
+        val urlBarTexts = LinkedHashSet<String>()
+        val pageHits = LinkedHashSet<String>()
+
+        event.text?.forEach { chunk ->
+            chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { urlBarTexts.add(it) }
+        }
+        event.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            urlBarTexts.add(it)
+        }
+
+        rootInActiveWindow?.let { root ->
+            collectUrlCandidatesFromRoot(root, pkg, urlBarTexts)
+            collectBlockedDomainHits(root, pageHits)
+        }
+
+        windows?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                if (root.packageName?.toString() == pkg) {
+                    collectUrlCandidatesFromRoot(root, pkg, urlBarTexts)
+                    collectBlockedDomainHits(root, pageHits)
+                }
+            } finally {
+                root.recycle()
+            }
+        }
+
+        val urlBarHost = urlBarTexts.firstNotNullOfOrNull {
+            BlockedSitesManager.extractHostPublic(it)
+        }
+        if (urlBarHost != null && BlockedSitesManager.isSafeRedirectHost(urlBarHost)) return
+
+        val matchedDomain =
+            urlBarTexts.firstNotNullOfOrNull { BlockedSitesManager.findMatchingDomain(this, it) }
+                ?: pageHits.firstNotNullOfOrNull { BlockedSitesManager.findMatchingDomain(this, it) }
+                ?: return
+
+        lastBlockedUrlSuppressUntil = now + BLOCKED_SITE_SUPPRESS_MS
+        redirectInProgress = true
+        redirectBrowserToGoogle(pkg, matchedDomain)
+    }
+
+    private fun collectBlockedDomainHits(root: AccessibilityNodeInfo, out: MutableSet<String>) {
+        for (domain in BlockedSitesManager.getBlockedDomains(this)) {
+            val nodes = root.findAccessibilityNodeInfosByText(domain) ?: continue
+            for (node in nodes) {
+                try {
+                    out.add(domain)
+                    node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+                    node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+                } finally {
+                    node.recycle()
+                }
+            }
+        }
+    }
+
+    private fun collectUrlCandidatesFromRoot(
+        root: AccessibilityNodeInfo,
+        pkg: String,
+        out: MutableSet<String>
+    ) {
+        for (suffix in urlBarViewIdSuffixes) {
+            val nodes = root.findAccessibilityNodeInfosByViewId("$pkg:id/$suffix") ?: continue
+            for (node in nodes) {
+                try {
+                    node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+                    node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        node.hintText?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+                    }
+                } finally {
+                    node.recycle()
+                }
+            }
+        }
+
+        walkForUrlLikeText(root, out, 0)
+    }
+
+    private fun walkForUrlLikeText(node: AccessibilityNodeInfo?, out: MutableSet<String>, depth: Int) {
+        if (node == null || depth > 24) return
+
+        val viewId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString()?.trim().orEmpty()
+        val desc = node.contentDescription?.toString()?.trim().orEmpty()
+
+        val looksLikeUrlBar = urlBarViewIdSuffixes.any { viewId.endsWith(it) }
+        for (candidate in listOf(text, desc)) {
+            if (candidate.isEmpty()) continue
+            if (looksLikeUrlBar || looksLikeUrlOrHost(candidate)) {
+                out.add(candidate)
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                walkForUrlLikeText(child, out, depth + 1)
+            } finally {
+                child.recycle()
+            }
+        }
+    }
+
+    private fun looksLikeUrlOrHost(value: String): Boolean {
+        val v = value.lowercase()
+        if (v.contains("://")) return true
+        if (v.startsWith("www.")) return true
+        return Regex("""^[a-z0-9][a-z0-9.\-]*\.[a-z]{2,}(/.*)?$""", RegexOption.IGNORE_CASE)
+            .containsMatchIn(v)
+    }
+
+    private fun redirectBrowserToGoogle(browserPackage: String, matchedDomain: String) {
+        // Try to rewrite the current tab's address bar; fall back to opening Google in-browser.
+        if (!trySetUrlBarToGoogle(browserPackage)) {
+            openGoogleViaIntent(browserPackage)
+        }
+
+        ProtectionInfoPopup.showBlockedSite(this, matchedDomain)
+        handler.postDelayed({
+            redirectInProgress = false
+        }, REDIRECT_LOCK_MS)
+    }
+
+    private fun trySetUrlBarToGoogle(browserPackage: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val urlBar = findUrlBarNode(root, browserPackage) ?: return false
+
+        try {
+            urlBar.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+            urlBar.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        } finally {
+            urlBar.recycle()
+        }
+
+        // Omnibox needs a moment after focus before SET_TEXT works reliably.
+        handler.postDelayed({
+            val freshRoot = rootInActiveWindow ?: run {
+                openGoogleViaIntent(browserPackage)
+                return@postDelayed
+            }
+            val focusedBar = findUrlBarNode(freshRoot, browserPackage)
+            if (focusedBar == null) {
+                openGoogleViaIntent(browserPackage)
+                return@postDelayed
+            }
+            try {
+                val args = Bundle()
+                args.putCharSequence(
+                    AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                    SAFE_REDIRECT_URL
+                )
+                focusedBar.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                openGoogleViaIntent(browserPackage)
+            } finally {
+                focusedBar.recycle()
+            }
+        }, URL_BAR_FOCUS_DELAY_MS)
+
+        return true
+    }
+
+    private fun findUrlBarNode(root: AccessibilityNodeInfo, pkg: String): AccessibilityNodeInfo? {
+        for (suffix in urlBarViewIdSuffixes) {
+            val nodes = root.findAccessibilityNodeInfosByViewId("$pkg:id/$suffix")
+            if (!nodes.isNullOrEmpty()) {
+                val match = nodes[0]
+                for (i in 1 until nodes.size) nodes[i].recycle()
+                return match
+            }
+        }
+        return findUrlBarNodeByWalk(root, 0)
+    }
+
+    private fun findUrlBarNodeByWalk(node: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
+        if (node == null || depth > 24) return null
+
+        val viewId = node.viewIdResourceName.orEmpty()
+        if (urlBarViewIdSuffixes.any { viewId.endsWith(it) }) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findUrlBarNodeByWalk(child, depth + 1)
+            child.recycle()
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun openGoogleViaIntent(browserPackage: String): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(SAFE_REDIRECT_URL)).apply {
+                setPackage(browserPackage)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            true
+        } catch (_: Exception) {
+            try {
+                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(SAFE_REDIRECT_URL)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(fallback)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+    }
+
     private fun evaluateAndDismiss(fromRecheck: Boolean) {
         if (!PasswordManager.isDnsScreenLockEnabled(this)) return
         if (PasswordManager.isDnsUnlocked(this)) return
@@ -281,11 +542,16 @@ class DnsLockAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         handler.removeCallbacks(recheckRunnable)
         onTargetScreen = false
+        redirectInProgress = false
     }
 
     companion object {
+        private const val SAFE_REDIRECT_URL = "https://www.google.com"
         private const val DISMISS_COOLDOWN_MS = 600L
         private const val BLOCKED_APP_SUPPRESS_MS = 4_000L
+        private const val BLOCKED_SITE_SUPPRESS_MS = 5_000L
+        private const val REDIRECT_LOCK_MS = 2_500L
+        private const val URL_BAR_FOCUS_DELAY_MS = 200L
         private const val UNINSTALL_SUPPRESS_MS = 4_000L
         private const val RESET_DELAY_MS = 1200L
         private const val RECHECK_DELAY_MS = 200L

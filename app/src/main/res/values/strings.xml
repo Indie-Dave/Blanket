@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS status indicator</string>
     <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
-        Automatically minimizes the Settings app on network DNS screens, closes blocked apps, and prevents uninstalling Blanket.
+        Automatically minimizes the Settings app on network DNS screens, closes blocked apps and websites, and prevents uninstalling Blanket.
     </string>
     <string name="blocked_apps_title">Blocked apps</string>
     <string name="blocked_apps_hint">Enter app name (e.g. Chrome, YouTube)</string>
@@ -15,6 +15,16 @@
     <string name="app_closed_title">App closed</string>
     <string name="app_closed_blocked_reason">%1$s was closed because it matched your blocklist keyword \"%2$s\".</string>
     <string name="app_closed_uninstall_reason">Uninstalling Blanket is not allowed while protection is active.</string>
+    <string name="blocked_sites_title">Blocked websites</string>
+    <string name="blocked_sites_summary">Works in Chrome, Samsung Internet, Firefox and Brave. Blocks the domain and its subdomains.</string>
+    <string name="blocked_sites_hint">Enter website (e.g. youtube.com)</string>
+    <string name="add_blocked_site">Add website</string>
+    <string name="blocked_sites_empty">No websites on the list</string>
+    <string name="blocked_site_added">%1$s added to the list</string>
+    <string name="blocked_site_duplicate">%1$s is already on the list</string>
+    <string name="blocked_site_invalid">Enter a valid website, e.g. youtube.com</string>
+    <string name="site_blocked_title">Website blocked</string>
+    <string name="site_blocked_reason">%1$s is on your blocklist — redirected to Google.</string>
     <string name="accessibility_status_enabled">Background protection: active (includes uninstall protection)</string>
     <string name="accessibility_status_disabled">Background protection: inactive — permission required</string>
     <string name="open_accessibility_settings">Enable accessibility</string>

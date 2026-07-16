@@ -23,6 +23,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var blockedAppNameInput: EditText
     private lateinit var blockedAppsEmptyText: TextView
     private lateinit var blockedAppsListContainer: LinearLayout
+    private lateinit var blockedSiteInput: EditText
+    private lateinit var blockedSitesEmptyText: TextView
+    private lateinit var blockedSitesListContainer: LinearLayout
     private lateinit var passwordStatusText: TextView
     private lateinit var setPasswordButton: Button
     private lateinit var dnsScreenLockSwitch: SwitchMaterial
@@ -42,6 +45,9 @@ class MainActivity : AppCompatActivity() {
         blockedAppNameInput = findViewById(R.id.blockedAppNameInput)
         blockedAppsEmptyText = findViewById(R.id.blockedAppsEmptyText)
         blockedAppsListContainer = findViewById(R.id.blockedAppsListContainer)
+        blockedSiteInput = findViewById(R.id.blockedSiteInput)
+        blockedSitesEmptyText = findViewById(R.id.blockedSitesEmptyText)
+        blockedSitesListContainer = findViewById(R.id.blockedSitesListContainer)
         passwordStatusText = findViewById(R.id.passwordStatusText)
         setPasswordButton = findViewById(R.id.setPasswordButton)
         dnsScreenLockSwitch = findViewById(R.id.dnsScreenLockSwitch)
@@ -54,6 +60,10 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.addBlockedAppButton).setOnClickListener {
             addBlockedApp()
+        }
+
+        findViewById<Button>(R.id.addBlockedSiteButton).setOnClickListener {
+            addBlockedSite()
         }
 
         findViewById<Button>(R.id.disableBatteryOptimizationButton).setOnClickListener {
@@ -75,6 +85,7 @@ class MainActivity : AppCompatActivity() {
 
         refreshStatus()
         refreshBlockedAppsList()
+        refreshBlockedSitesList()
         refreshPasswordAndDnsStatus()
     }
 
@@ -82,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refreshStatus()
         refreshBlockedAppsList()
+        refreshBlockedSitesList()
         refreshPasswordAndDnsStatus()
     }
 
@@ -224,6 +236,72 @@ class MainActivity : AppCompatActivity() {
             row.addView(label)
             row.addView(removeButton)
             blockedAppsListContainer.addView(row)
+        }
+    }
+
+    private fun addBlockedSite() {
+        val input = blockedSiteInput.text.toString()
+        val normalized = BlockedSitesManager.normalizeInput(input)
+
+        if (normalized == null) {
+            if (input.trim().isNotEmpty()) {
+                Toast.makeText(this, R.string.blocked_site_invalid, Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        if (BlockedSitesManager.addDomain(this, input)) {
+            blockedSiteInput.text.clear()
+            refreshBlockedSitesList()
+            Toast.makeText(this, getString(R.string.blocked_site_added, normalized), Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, getString(R.string.blocked_site_duplicate, normalized), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun removeBlockedSite(domain: String) {
+        val doRemove = {
+            BlockedSitesManager.removeDomain(this, domain)
+            refreshBlockedSitesList()
+        }
+
+        if (PasswordManager.isPasswordSet(this)) {
+            PasswordDialog.showVerify(this, getString(R.string.enter_password_title), onSuccess = doRemove)
+        } else {
+            doRemove()
+        }
+    }
+
+    private fun refreshBlockedSitesList() {
+        val domains = BlockedSitesManager.getBlockedDomains(this)
+        blockedSitesEmptyText.visibility = if (domains.isEmpty()) View.VISIBLE else View.GONE
+        blockedSitesListContainer.removeAllViews()
+
+        for (domain in domains) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (8 * resources.displayMetrics.density).toInt()
+                }
+            }
+
+            val label = TextView(this).apply {
+                text = domain
+                textSize = 14f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val removeButton = Button(this).apply {
+                text = getString(R.string.remove_blocked_app)
+                setOnClickListener { removeBlockedSite(domain) }
+            }
+
+            row.addView(label)
+            row.addView(removeButton)
+            blockedSitesListContainer.addView(row)
         }
     }
 
