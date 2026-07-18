@@ -228,11 +228,14 @@ class DnsLockAccessibilityService : AccessibilityService() {
         val pkg = resolveForegroundPackage(event) ?: return
         if (pkg !in browserPackages) return
 
+        // Typing / search-bar editing: do not redirect while the soft keyboard is up.
+        // Block only once the keyboard is down (URL committed / page loading or loaded).
+        if (isSoftKeyboardVisible()) return
+
         val now = System.currentTimeMillis()
         if (now < lastBlockedUrlSuppressUntil) return
 
         val urlBarTexts = LinkedHashSet<String>()
-        val pageHits = LinkedHashSet<String>()
 
         event.text?.forEach { chunk ->
             chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { urlBarTexts.add(it) }
@@ -243,7 +246,6 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
         rootInActiveWindow?.let { root ->
             collectUrlCandidatesFromRoot(root, pkg, urlBarTexts)
-            collectBlockedDomainHits(root, pageHits)
         }
 
         windows?.forEach { window ->
@@ -252,40 +254,66 @@ class DnsLockAccessibilityService : AccessibilityService() {
             try {
                 if (root.packageName?.toString() == pkg) {
                     collectUrlCandidatesFromRoot(root, pkg, urlBarTexts)
-                    collectBlockedDomainHits(root, pageHits)
                 }
             } finally {
                 root.recycle()
             }
         }
 
+        if (urlBarTexts.isEmpty()) return
+
         val urlBarHost = urlBarTexts.firstNotNullOfOrNull {
             BlockedSitesManager.extractHostPublic(it)
         }
-        if (urlBarHost != null && BlockedSitesManager.isSafeRedirectHost(urlBarHost)) return
+        if (urlBarHost != null && BlockedSitesManager.isSafeRedirectHost(urlBarHost)) {
+            // On Google itself: only block keywords in search/path URLs, not the bare homepage.
+            if (!looksLikeGoogleSearchOrPath(urlBarTexts)) return
 
-        val matchedDomain =
-            urlBarTexts.firstNotNullOfOrNull { BlockedSitesManager.findMatchingDomain(this, it) }
-                ?: pageHits.firstNotNullOfOrNull { BlockedSitesManager.findMatchingDomain(this, it) }
+            val matchedKeywordOnGoogle = BlockedKeywordsManager.findMatchingKeyword(this, urlBarTexts)
                 ?: return
+
+            lastBlockedUrlSuppressUntil = now + BLOCKED_SITE_SUPPRESS_MS
+            redirectInProgress = true
+            redirectBrowserToGoogle(pkg, matchedKeyword = matchedKeywordOnGoogle)
+            return
+        }
+
+        val matchedDomain = if (urlBarTexts.any { looksLikeUrlOrHost(it) }) {
+            urlBarTexts.firstNotNullOfOrNull {
+                BlockedSitesManager.findMatchingDomain(this, it)
+            }
+        } else {
+            null
+        }
+
+        val matchedKeyword = BlockedKeywordsManager.findMatchingKeyword(this, urlBarTexts)
+
+        if (matchedDomain == null && matchedKeyword == null) return
 
         lastBlockedUrlSuppressUntil = now + BLOCKED_SITE_SUPPRESS_MS
         redirectInProgress = true
-        redirectBrowserToGoogle(pkg, matchedDomain)
+        redirectBrowserToGoogle(
+            browserPackage = pkg,
+            matchedDomain = matchedDomain,
+            matchedKeyword = matchedKeyword
+        )
     }
 
-    private fun collectBlockedDomainHits(root: AccessibilityNodeInfo, out: MutableSet<String>) {
-        for (domain in BlockedSitesManager.getBlockedDomains(this)) {
-            val nodes = root.findAccessibilityNodeInfosByText(domain) ?: continue
-            for (node in nodes) {
-                try {
-                    out.add(domain)
-                    node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
-                    node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
-                } finally {
-                    node.recycle()
-                }
-            }
+    private fun isSoftKeyboardVisible(): Boolean {
+        windows?.forEach { window ->
+            if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) return true
+        }
+        return false
+    }
+
+    private fun looksLikeGoogleSearchOrPath(texts: Collection<String>): Boolean {
+        return texts.any { text ->
+            val lower = text.lowercase()
+            lower.contains("/search") ||
+                lower.contains("q=") ||
+                lower.contains("/url?") ||
+                // path after host: google.com/something
+                Regex("""google\.com/.+""", RegexOption.IGNORE_CASE).containsMatchIn(lower)
         }
     }
 
@@ -309,28 +337,23 @@ class DnsLockAccessibilityService : AccessibilityService() {
             }
         }
 
-        walkForUrlLikeText(root, out, 0)
+        // Fallback: walk only for known address-bar view ids (not in-page link text).
+        walkForUrlBarText(root, out, 0)
     }
 
-    private fun walkForUrlLikeText(node: AccessibilityNodeInfo?, out: MutableSet<String>, depth: Int) {
+    private fun walkForUrlBarText(node: AccessibilityNodeInfo?, out: MutableSet<String>, depth: Int) {
         if (node == null || depth > 24) return
 
         val viewId = node.viewIdResourceName.orEmpty()
-        val text = node.text?.toString()?.trim().orEmpty()
-        val desc = node.contentDescription?.toString()?.trim().orEmpty()
-
-        val looksLikeUrlBar = urlBarViewIdSuffixes.any { viewId.endsWith(it) }
-        for (candidate in listOf(text, desc)) {
-            if (candidate.isEmpty()) continue
-            if (looksLikeUrlBar || looksLikeUrlOrHost(candidate)) {
-                out.add(candidate)
-            }
+        if (urlBarViewIdSuffixes.any { viewId.endsWith(it) }) {
+            node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+            node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
         }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {
-                walkForUrlLikeText(child, out, depth + 1)
+                walkForUrlBarText(child, out, depth + 1)
             } finally {
                 child.recycle()
             }
@@ -345,13 +368,20 @@ class DnsLockAccessibilityService : AccessibilityService() {
             .containsMatchIn(v)
     }
 
-    private fun redirectBrowserToGoogle(browserPackage: String, matchedDomain: String) {
+    private fun redirectBrowserToGoogle(
+        browserPackage: String,
+        matchedDomain: String? = null,
+        matchedKeyword: String? = null
+    ) {
         // Try to rewrite the current tab's address bar; fall back to opening Google in-browser.
         if (!trySetUrlBarToGoogle(browserPackage)) {
             openGoogleViaIntent(browserPackage)
         }
 
-        ProtectionInfoPopup.showBlockedSite(this, matchedDomain)
+        when {
+            matchedDomain != null -> ProtectionInfoPopup.showBlockedSite(this, matchedDomain)
+            matchedKeyword != null -> ProtectionInfoPopup.showBlockedKeyword(this, matchedKeyword)
+        }
         handler.postDelayed({
             redirectInProgress = false
         }, REDIRECT_LOCK_MS)

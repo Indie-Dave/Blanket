@@ -35,6 +35,14 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showBlockedKeyword(context: Context, keyword: String) {
+        show(
+            context = context,
+            title = context.getString(R.string.keyword_blocked_title),
+            message = context.getString(R.string.keyword_blocked_reason, keyword)
+        )
+    }
+
     fun showUninstallBlocked(context: Context) {
         show(
             context = context,

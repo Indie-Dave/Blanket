@@ -26,6 +26,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var blockedSiteInput: EditText
     private lateinit var blockedSitesEmptyText: TextView
     private lateinit var blockedSitesListContainer: LinearLayout
+    private lateinit var blockedKeywordInput: EditText
+    private lateinit var blockedKeywordsEmptyText: TextView
+    private lateinit var blockedKeywordsListContainer: LinearLayout
     private lateinit var passwordStatusText: TextView
     private lateinit var setPasswordButton: Button
     private lateinit var dnsScreenLockSwitch: SwitchMaterial
@@ -48,6 +51,9 @@ class MainActivity : AppCompatActivity() {
         blockedSiteInput = findViewById(R.id.blockedSiteInput)
         blockedSitesEmptyText = findViewById(R.id.blockedSitesEmptyText)
         blockedSitesListContainer = findViewById(R.id.blockedSitesListContainer)
+        blockedKeywordInput = findViewById(R.id.blockedKeywordInput)
+        blockedKeywordsEmptyText = findViewById(R.id.blockedKeywordsEmptyText)
+        blockedKeywordsListContainer = findViewById(R.id.blockedKeywordsListContainer)
         passwordStatusText = findViewById(R.id.passwordStatusText)
         setPasswordButton = findViewById(R.id.setPasswordButton)
         dnsScreenLockSwitch = findViewById(R.id.dnsScreenLockSwitch)
@@ -64,6 +70,10 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.addBlockedSiteButton).setOnClickListener {
             addBlockedSite()
+        }
+
+        findViewById<Button>(R.id.addBlockedKeywordButton).setOnClickListener {
+            addBlockedKeyword()
         }
 
         findViewById<Button>(R.id.disableBatteryOptimizationButton).setOnClickListener {
@@ -86,6 +96,7 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
         refreshBlockedAppsList()
         refreshBlockedSitesList()
+        refreshBlockedKeywordsList()
         refreshPasswordAndDnsStatus()
     }
 
@@ -94,6 +105,7 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
         refreshBlockedAppsList()
         refreshBlockedSitesList()
+        refreshBlockedKeywordsList()
         refreshPasswordAndDnsStatus()
     }
 
@@ -302,6 +314,72 @@ class MainActivity : AppCompatActivity() {
             row.addView(label)
             row.addView(removeButton)
             blockedSitesListContainer.addView(row)
+        }
+    }
+
+    private fun addBlockedKeyword() {
+        val input = blockedKeywordInput.text.toString()
+        val normalized = BlockedKeywordsManager.normalizeInput(input)
+
+        if (normalized == null) {
+            if (input.trim().isNotEmpty()) {
+                Toast.makeText(this, R.string.blocked_keyword_invalid, Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        if (BlockedKeywordsManager.addKeyword(this, input)) {
+            blockedKeywordInput.text.clear()
+            refreshBlockedKeywordsList()
+            Toast.makeText(this, getString(R.string.blocked_keyword_added, normalized), Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, getString(R.string.blocked_keyword_duplicate, normalized), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun removeBlockedKeyword(keyword: String) {
+        val doRemove = {
+            BlockedKeywordsManager.removeKeyword(this, keyword)
+            refreshBlockedKeywordsList()
+        }
+
+        if (PasswordManager.isPasswordSet(this)) {
+            PasswordDialog.showVerify(this, getString(R.string.enter_password_title), onSuccess = doRemove)
+        } else {
+            doRemove()
+        }
+    }
+
+    private fun refreshBlockedKeywordsList() {
+        val keywords = BlockedKeywordsManager.getBlockedKeywords(this)
+        blockedKeywordsEmptyText.visibility = if (keywords.isEmpty()) View.VISIBLE else View.GONE
+        blockedKeywordsListContainer.removeAllViews()
+
+        for (keyword in keywords) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (8 * resources.displayMetrics.density).toInt()
+                }
+            }
+
+            val label = TextView(this).apply {
+                text = keyword
+                textSize = 14f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            val removeButton = Button(this).apply {
+                text = getString(R.string.remove_blocked_app)
+                setOnClickListener { removeBlockedKeyword(keyword) }
+            }
+
+            row.addView(label)
+            row.addView(removeButton)
+            blockedKeywordsListContainer.addView(row)
         }
     }
 

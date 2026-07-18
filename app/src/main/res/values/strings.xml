@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS status indicator</string>
     <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
-        Automatically minimizes the Settings app on network DNS screens, closes blocked apps and websites, and prevents uninstalling Blanket.
+        Automatically minimizes the Settings app on network DNS screens, closes blocked apps and websites, blocks keywords in the browser, and prevents uninstalling Blanket.
     </string>
     <string name="blocked_apps_title">Blocked apps</string>
     <string name="blocked_apps_hint">Enter app name (e.g. Chrome, YouTube)</string>
@@ -25,6 +25,16 @@
     <string name="blocked_site_invalid">Enter a valid website, e.g. youtube.com</string>
     <string name="site_blocked_title">Website blocked</string>
     <string name="site_blocked_reason">%1$s is on your blocklist — redirected to Google.</string>
+    <string name="blocked_keywords_title">Blocked keywords</string>
+    <string name="blocked_keywords_summary">Blocks browser pages when the address bar contains the keyword. Same browsers as website blocking.</string>
+    <string name="blocked_keywords_hint">Enter keyword (e.g. gambling)</string>
+    <string name="add_blocked_keyword">Add keyword</string>
+    <string name="blocked_keywords_empty">No keywords on the list</string>
+    <string name="blocked_keyword_added">%1$s added to the list</string>
+    <string name="blocked_keyword_duplicate">%1$s is already on the list</string>
+    <string name="blocked_keyword_invalid">Enter a keyword with at least 3 characters</string>
+    <string name="keyword_blocked_title">Keyword blocked</string>
+    <string name="keyword_blocked_reason">Blocked because of keyword \"%1$s\" — redirected to Google.</string>
     <string name="accessibility_status_enabled">Background protection: active (includes uninstall protection)</string>
     <string name="accessibility_status_disabled">Background protection: inactive — permission required</string>
     <string name="open_accessibility_settings">Enable accessibility</string>

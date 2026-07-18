@@ -203,6 +203,52 @@
             android:id="@+id/blockedSitesListContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginBottom="32dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/blocked_keywords_title"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/blocked_keywords_summary"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/blockedKeywordInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:hint="@string/blocked_keywords_hint"
+            android:imeOptions="actionDone"
+            android:inputType="text"
+            android:maxLines="1" />
+
+        <Button
+            android:id="@+id/addBlockedKeywordButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="@string/add_blocked_keyword" />
+
+        <TextView
+            android:id="@+id/blockedKeywordsEmptyText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/blocked_keywords_empty"
+            android:textSize="14sp" />
+
+        <LinearLayout
+            android:id="@+id/blockedKeywordsListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:orientation="vertical" />
 
     </LinearLayout>
