@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS status indicator</string>
     <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
-        Automatically minimizes the Settings app on network DNS screens, closes blocked apps and websites, blocks keywords in the browser, and prevents uninstalling Blanket.
+        Automatically minimizes the Settings app on network DNS screens, forces browsers to use system DNS, closes blocked apps and websites, blocks keywords in the browser, and prevents uninstalling Blanket.
     </string>
     <string name="blocked_apps_title">Blocked apps</string>
     <string name="blocked_apps_hint">Enter app name (e.g. Chrome, YouTube)</string>
@@ -68,9 +68,24 @@
     <string name="dns_status_host">Private DNS: %1$s</string>
     <string name="dns_status_unknown_host">unknown</string>
     <string name="dns_status_mode">Private DNS mode: %1$s</string>
+    <string name="dns_browser_blocked_title">DNS settings blocked</string>
+    <string name="dns_browser_blocked_reason">Changing DNS in the browser is not allowed while protection is active.</string>
 
     <string-array name="dns_lock_target_titles">
         <item>More connection settings</item>
         <item>Additional connection settings</item>
+    </string-array>
+
+    <!-- Toolbar / screen titles for entered browser Secure DNS menus (EN + DE) -->
+    <string-array name="browser_dns_screen_markers">
+        <item>Use secure DNS</item>
+        <item>Sicheres DNS verwenden</item>
+        <item>Secure DNS</item>
+        <item>Sicheres DNS</item>
+        <item>DNS over HTTPS</item>
+        <item>DNS-over-HTTPS</item>
+        <item>Enable DNS over HTTPS</item>
+        <item>DNS über HTTPS</item>
+        <item>DNS-über-HTTPS</item>
     </string-array>
 </resources>

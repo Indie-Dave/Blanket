@@ -51,6 +51,14 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showBlockedDnsSettings(context: Context) {
+        show(
+            context = context,
+            title = context.getString(R.string.dns_browser_blocked_title),
+            message = context.getString(R.string.dns_browser_blocked_reason)
+        )
+    }
+
     private fun show(context: Context, title: String, message: String) {
         val alertKey = "$title|$message"
         val now = System.currentTimeMillis()

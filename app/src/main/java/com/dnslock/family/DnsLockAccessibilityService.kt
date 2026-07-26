@@ -14,7 +14,8 @@ import android.view.accessibility.AccessibilityWindowInfo
 /**
  * Navigates back one screen in Settings when the toolbar title matches a known
  * DNS settings screen for the current system locale (including Samsung hyphen variants).
- * Also redirects browsers away from blocked websites to Google.
+ * Also redirects browsers away from blocked websites to Google, and blocks browser
+ * Secure DNS / DoH settings screens when those menus are entered.
  */
 class DnsLockAccessibilityService : AccessibilityService() {
 
@@ -24,9 +25,16 @@ class DnsLockAccessibilityService : AccessibilityService() {
             .map(::normalizeTitle)
             .toSet()
     }
+    private val browserDnsScreenTitles: Set<String> by lazy {
+        resources.getStringArray(R.array.browser_dns_screen_markers)
+            .map(::normalizeTitle)
+            .toSet()
+    }
     private var onTargetScreen = false
+    private var onBrowserDnsScreen = false
     private var lastDismissAt = 0L
     private var lastUninstallBlockAt = 0L
+    private var lastBrowserDnsBlockAt = 0L
     private val blockedSuppressUntil = mutableMapOf<String, Long>()
 
     private val settingsPackages = setOf(
@@ -34,19 +42,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         "com.samsung.android.settings"
     )
 
-    private val browserPackages = setOf(
-        "com.android.chrome",
-        "com.chrome.beta",
-        "com.chrome.dev",
-        "com.sec.android.app.sbrowser",
-        "com.sec.android.app.sbrowser.beta",
-        "org.mozilla.firefox",
-        "org.mozilla.firefox_beta",
-        "org.mozilla.fenix",
-        "com.brave.browser",
-        "com.brave.browser_beta",
-        "com.brave.browser_nightly"
-    )
+    private val browserPackages = BROWSER_PACKAGES
 
     private val urlBarViewIdSuffixes = listOf(
         "url_bar",
@@ -70,6 +66,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     )
 
     private val recheckRunnable = Runnable { evaluateAndDismiss(fromRecheck = true) }
+    private val browserDnsRecheckRunnable = Runnable { blockBrowserDnsScreen(fromRecheck = true) }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -88,11 +85,17 @@ class DnsLockAccessibilityService : AccessibilityService() {
                 evaluateBlockedApp(event)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
+                blockBrowserDnsScreen(fromRecheck = false)
             }
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                maybeBlockUninstall(event)
+                evaluateBlockedSite(event)
+                // Fragment navigations often only emit content/focus changes.
+                blockBrowserDnsScreen(fromRecheck = false)
+            }
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
             }
@@ -118,8 +121,8 @@ class DnsLockAccessibilityService : AccessibilityService() {
         maybeDismissBlockedApp(pkg, findWindowTitle())
     }
 
-    private fun resolveForegroundPackage(event: AccessibilityEvent): String? {
-        event.packageName?.toString()?.let { return it }
+    private fun resolveForegroundPackage(event: AccessibilityEvent?): String? {
+        event?.packageName?.toString()?.let { return it }
 
         rootInActiveWindow?.packageName?.toString()?.let { return it }
 
@@ -297,6 +300,105 @@ class DnsLockAccessibilityService : AccessibilityService() {
             matchedDomain = matchedDomain,
             matchedKeyword = matchedKeyword
         )
+    }
+
+    /**
+     * Blocks Secure DNS / DoH when that settings menu is entered (toolbar title
+     * match), same pattern as system Private DNS screen dismiss — not when the
+     * preference label is merely visible on a parent settings page.
+     */
+    private fun blockBrowserDnsScreen(fromRecheck: Boolean) {
+        if (!PasswordManager.isDnsScreenLockEnabled(this)) return
+        if (PasswordManager.isDnsUnlocked(this)) return
+
+        val pkg = resolveForegroundPackage(null) ?: return
+        if (pkg !in browserPackages) {
+            onBrowserDnsScreen = false
+            handler.removeCallbacks(browserDnsRecheckRunnable)
+            return
+        }
+
+        val entered = hasBrowserDnsScreenTitle(pkg)
+
+        if (!entered) {
+            onBrowserDnsScreen = false
+            if (!fromRecheck) {
+                handler.removeCallbacks(browserDnsRecheckRunnable)
+                handler.postDelayed(browserDnsRecheckRunnable, RECHECK_DELAY_MS)
+            }
+            return
+        }
+
+        handler.removeCallbacks(browserDnsRecheckRunnable)
+
+        // Already handled this entry — don't keep blocking while still on-screen.
+        if (onBrowserDnsScreen) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastBrowserDnsBlockAt < BROWSER_DNS_BLOCK_COOLDOWN_MS) return
+
+        onBrowserDnsScreen = true
+        if (performGlobalAction(GLOBAL_ACTION_BACK)) {
+            lastBrowserDnsBlockAt = now
+            ProtectionInfoPopup.showBlockedDnsSettings(this)
+            handler.postDelayed({ onBrowserDnsScreen = false }, RESET_DELAY_MS)
+        } else {
+            onBrowserDnsScreen = false
+            handler.postDelayed(browserDnsRecheckRunnable, RECHECK_DELAY_MS)
+        }
+    }
+
+    private fun hasBrowserDnsScreenTitle(pkg: String): Boolean {
+        rootInActiveWindow?.let { root ->
+            try {
+                if (root.packageName?.toString() == pkg && findBrowserDnsScreenTitle(root) != null) {
+                    return true
+                }
+            } finally {
+                root.recycle()
+            }
+        }
+
+        windows?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                if (root.packageName?.toString() == pkg && findBrowserDnsScreenTitle(root) != null) {
+                    return true
+                }
+            } finally {
+                root.recycle()
+            }
+        }
+        return false
+    }
+
+    private fun findBrowserDnsScreenTitle(node: AccessibilityNodeInfo?, depth: Int = 0): String? {
+        if (node == null || depth > 12) return null
+
+        val viewId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString()?.trim().orEmpty()
+        val desc = node.contentDescription?.toString()?.trim().orEmpty()
+
+        for (candidate in listOf(text, desc)) {
+            if (candidate.isEmpty()) continue
+            if (normalizeTitle(candidate) !in browserDnsScreenTitles) continue
+
+            val looksLikeToolbar = toolbarTitleViewIdSuffixes.any { viewId.endsWith(it) }
+            // Only treat as "menu entered" when this is the screen title, not a
+            // clickable preference row on a parent page.
+            if (looksLikeToolbar || !isInsideClickableRow(node)) {
+                return candidate
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            val found = findBrowserDnsScreenTitle(child, depth + 1)
+            child?.recycle()
+            if (found != null) return found
+        }
+        return null
     }
 
     private fun isSoftKeyboardVisible(): Boolean {
@@ -571,11 +673,28 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         handler.removeCallbacks(recheckRunnable)
+        handler.removeCallbacks(browserDnsRecheckRunnable)
         onTargetScreen = false
+        onBrowserDnsScreen = false
         redirectInProgress = false
     }
 
     companion object {
+        /** Browsers where site / keyword blocking and Secure DNS blocking apply. */
+        val BROWSER_PACKAGES = setOf(
+            "com.android.chrome",
+            "com.chrome.beta",
+            "com.chrome.dev",
+            "com.sec.android.app.sbrowser",
+            "com.sec.android.app.sbrowser.beta",
+            "org.mozilla.firefox",
+            "org.mozilla.firefox_beta",
+            "org.mozilla.fenix",
+            "com.brave.browser",
+            "com.brave.browser_beta",
+            "com.brave.browser_nightly"
+        )
+
         private const val SAFE_REDIRECT_URL = "https://www.google.com"
         private const val DISMISS_COOLDOWN_MS = 600L
         private const val BLOCKED_APP_SUPPRESS_MS = 4_000L
@@ -585,5 +704,6 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val UNINSTALL_SUPPRESS_MS = 4_000L
         private const val RESET_DELAY_MS = 1200L
         private const val RECHECK_DELAY_MS = 200L
+        private const val BROWSER_DNS_BLOCK_COOLDOWN_MS = 800L
     }
 }

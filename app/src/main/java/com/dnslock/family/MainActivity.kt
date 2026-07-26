@@ -405,4 +405,5 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.battery_status_disabled)
         }
     }
+
 }
