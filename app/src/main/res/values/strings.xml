@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS status indicator</string>
     <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
-        Automatically minimizes the Settings app on network DNS screens, forces browsers to use system DNS, closes blocked apps and websites, blocks keywords in the browser, and prevents uninstalling Blanket.
+        Automatically minimizes the Settings app on network DNS screens, forces browsers to use system DNS, closes blocked apps and websites, enforces app timers, blocks keywords in the browser, and prevents uninstalling Blanket.
     </string>
     <string name="blocked_apps_title">Blocked apps</string>
     <string name="blocked_apps_hint">Enter app name (e.g. Chrome, YouTube)</string>
@@ -70,6 +70,31 @@
     <string name="dns_status_mode">Private DNS mode: %1$s</string>
     <string name="dns_browser_blocked_title">DNS settings blocked</string>
     <string name="dns_browser_blocked_reason">Changing DNS in the browser is not allowed while protection is active.</string>
+
+    <string name="app_timers_title">App timers</string>
+    <string name="app_timers_home_summary">Set a daily time limit for any app. No password required — change timers anytime.</string>
+    <string name="app_timers_summary">Pick an app and set a daily limit. Remaining time is always your limit minus today\'s screen time from the phone (same source as Digital Wellbeing). When the limit is reached, Blanket closes the app. Timers reset at midnight. No password needed.</string>
+    <string name="app_timers_search_hint">Search apps</string>
+    <string name="manage_app_timers">Manage app timers</string>
+    <string name="open_usage_access_settings">Enable usage access</string>
+    <string name="usage_access_status_enabled">Usage access: granted (reads today\'s time from Android, same source as Digital Wellbeing)</string>
+    <string name="usage_access_status_disabled">Usage access: not granted — enable it to read today\'s app times</string>
+    <string name="app_timers_status_none">No app timers set</string>
+    <string name="app_timers_status_count">%1$d app timer(s) active</string>
+    <string name="set_app_timer">Set timer</string>
+    <string name="edit_app_timer">Edit</string>
+    <string name="remove_app_timer">Remove limit</string>
+    <string name="set_app_timer_for">Timer for %1$s</string>
+    <string name="set_app_timer_dialog_message">Daily limit (hours and minutes). Set both to 0 or tap Remove to clear.</string>
+    <string name="app_timer_hours_label">h</string>
+    <string name="app_timer_minutes_label">m</string>
+    <string name="app_timer_no_limit">No limit · used today: %1$s</string>
+    <string name="app_timer_remaining">%1$s left · %2$s limit − %3$s used today</string>
+    <string name="app_timer_exceeded">Limit reached (%1$s) · used today %2$s</string>
+    <string name="app_timer_saved">Timer for %1$s set to %2$s per day</string>
+    <string name="app_timer_removed">App timer removed</string>
+    <string name="app_timer_closed_title">Time limit reached</string>
+    <string name="app_timer_closed_reason">%1$s\'s daily time limit is up. It will be available again tomorrow.</string>
 
     <string-array name="dns_lock_target_titles">
         <item>More connection settings</item>

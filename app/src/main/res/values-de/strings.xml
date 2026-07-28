@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS-Statusanzeige</string>
     <string name="is_dns_set">Ist DNS gesetzt?</string>
     <string name="accessibility_service_description">
-        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch, erzwingt System-DNS in Browsern, schließt gesperrte Apps und Webseiten, sperrt Stichwörter im Browser und verhindert die Deinstallation von Blanket.
+        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch, erzwingt System-DNS in Browsern, schließt gesperrte Apps und Webseiten, setzt App-Timer durch, sperrt Stichwörter im Browser und verhindert die Deinstallation von Blanket.
     </string>
     <string name="blocked_apps_title">Gesperrte Apps</string>
     <string name="blocked_apps_hint">App-Namen eingeben (z. B. Chrome, YouTube)</string>
@@ -70,6 +70,31 @@
     <string name="dns_status_mode">Privates DNS-Modus: %1$s</string>
     <string name="dns_browser_blocked_title">DNS-Einstellungen gesperrt</string>
     <string name="dns_browser_blocked_reason">Das Ändern von DNS im Browser ist nicht erlaubt, solange der Schutz aktiv ist.</string>
+
+    <string name="app_timers_title">App-Timer</string>
+    <string name="app_timers_home_summary">Tägliches Zeitlimit für jede App festlegen. Kein Passwort nötig — Timer jederzeit ändern.</string>
+    <string name="app_timers_summary">App wählen und ein Tageslimit setzen. Verbleibende Zeit ist immer Limit minus heutige Nutzungszeit vom Telefon (dieselbe Quelle wie Digital Wellbeing). Ist das Limit erreicht, schließt Blanket die App. Timer werden um Mitternacht zurückgesetzt. Kein Passwort nötig.</string>
+    <string name="app_timers_search_hint">Apps suchen</string>
+    <string name="manage_app_timers">App-Timer verwalten</string>
+    <string name="open_usage_access_settings">Nutzungszugriff aktivieren</string>
+    <string name="usage_access_status_enabled">Nutzungszugriff: erteilt (liest die heutige Zeit aus Android — dieselbe Quelle wie Digital Wellbeing)</string>
+    <string name="usage_access_status_disabled">Nutzungszugriff: nicht erteilt — aktivieren, um heutige App-Zeiten zu lesen</string>
+    <string name="app_timers_status_none">Keine App-Timer gesetzt</string>
+    <string name="app_timers_status_count">%1$d App-Timer aktiv</string>
+    <string name="set_app_timer">Timer setzen</string>
+    <string name="edit_app_timer">Bearbeiten</string>
+    <string name="remove_app_timer">Limit entfernen</string>
+    <string name="set_app_timer_for">Timer für %1$s</string>
+    <string name="set_app_timer_dialog_message">Tägliches Limit (Stunden und Minuten). Beide auf 0 setzen oder Entfernen tippen zum Löschen.</string>
+    <string name="app_timer_hours_label">Std</string>
+    <string name="app_timer_minutes_label">Min</string>
+    <string name="app_timer_no_limit">Kein Limit · heute genutzt: %1$s</string>
+    <string name="app_timer_remaining">%1$s übrig · %2$s Limit − %3$s heute genutzt</string>
+    <string name="app_timer_exceeded">Limit erreicht (%1$s) · heute genutzt %2$s</string>
+    <string name="app_timer_saved">Timer für %1$s auf %2$s pro Tag gesetzt</string>
+    <string name="app_timer_removed">App-Timer entfernt</string>
+    <string name="app_timer_closed_title">Zeitlimit erreicht</string>
+    <string name="app_timer_closed_reason">Das tägliche Zeitlimit für %1$s ist aufgebraucht. Ab morgen wieder verfügbar.</string>
 
     <string-array name="dns_lock_target_titles">
         <item>Weitere Verbindungseinstellungen</item>

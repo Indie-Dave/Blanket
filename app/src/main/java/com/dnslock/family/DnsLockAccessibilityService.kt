@@ -58,6 +58,10 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     private var lastBlockedUrlSuppressUntil = 0L
     private var redirectInProgress = false
+    private var monitoredTimerPackage: String? = null
+    private var timerSessionStartedAt = 0L
+    private var timerSessionBaselineUsageMs = 0L
+    private var lastUsageStatsRefreshAt = 0L
 
     private val toolbarTitleViewIdSuffixes = listOf(
         "action_bar_title",
@@ -67,6 +71,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     private val recheckRunnable = Runnable { evaluateAndDismiss(fromRecheck = true) }
     private val browserDnsRecheckRunnable = Runnable { blockBrowserDnsScreen(fromRecheck = true) }
+    private val appTimerRecheckRunnable = Runnable { evaluateAppTimerLimit(fromRecheck = true) }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -83,6 +88,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 evaluateBlockedApp(event)
+                evaluateAppTimer(event)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 blockBrowserDnsScreen(fromRecheck = false)
@@ -119,6 +125,146 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private fun evaluateBlockedApp(event: AccessibilityEvent) {
         val pkg = resolveForegroundPackage(event) ?: return
         maybeDismissBlockedApp(pkg, findWindowTitle())
+    }
+
+    private fun evaluateAppTimer(event: AccessibilityEvent) {
+        val pkg = resolveForegroundPackage(event) ?: return
+        evaluateAppTimerForPackage(pkg)
+    }
+
+    private fun evaluateAppTimerLimit(fromRecheck: Boolean) {
+        val pkg = monitoredTimerPackage ?: return
+        evaluateAppTimerForPackage(pkg, fromRecheck = fromRecheck)
+    }
+
+    private fun evaluateAppTimerForPackage(pkg: String, fromRecheck: Boolean = false) {
+        if (pkg == packageName) {
+            clearAppTimerMonitor()
+            return
+        }
+
+        // Status bar / launcher flashes shouldn't cancel an active app countdown.
+        if (isTransientPackage(pkg)) {
+            if (monitoredTimerPackage != null) {
+                scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+            }
+            return
+        }
+
+        val limitMinutes = AppTimersManager.getLimitMinutes(this, pkg)
+        if (limitMinutes <= 0) {
+            clearAppTimerMonitor()
+            return
+        }
+
+        if (!UsageStatsHelper.hasUsageAccess(this)) {
+            beginTimerSessionIfNeeded(pkg, 0L)
+            scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+            return
+        }
+
+        // Always re-read today's used time from Android usage stats (Digital Wellbeing source).
+        val now = System.currentTimeMillis()
+        val forceRefresh = monitoredTimerPackage != pkg ||
+            !fromRecheck ||
+            now - lastUsageStatsRefreshAt >= USAGE_STATS_REFRESH_MS
+        val systemUsedToday = UsageStatsHelper.getTodayUsageMs(this, pkg, forceRefresh = forceRefresh)
+        if (forceRefresh) lastUsageStatsRefreshAt = now
+        beginTimerSessionIfNeeded(pkg, systemUsedToday)
+
+        val remaining = AppTimersManager.remainingMs(
+            context = this,
+            packageName = pkg,
+            sessionBaselineUsageMs = timerSessionBaselineUsageMs,
+            sessionStartedAtMs = timerSessionStartedAt,
+            forceRefresh = false
+        )
+        if (remaining <= 0L) {
+            maybeDismissTimedOutApp(pkg)
+            return
+        }
+
+        startOrRefreshCountdown(pkg)
+
+        if (!fromRecheck || monitoredTimerPackage == pkg) {
+            scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+        }
+    }
+
+    private fun isTransientPackage(pkg: String): Boolean {
+        return pkg == "com.android.systemui" ||
+            pkg.startsWith("com.android.launcher") ||
+            pkg.startsWith("com.google.android.apps.nexuslauncher") ||
+            pkg.startsWith("com.sec.android.app.launcher") ||
+            pkg.startsWith("com.samsung.android.honeyboard") ||
+            pkg.contains("inputmethod") ||
+            pkg.contains("quickstep")
+    }
+
+    private fun startOrRefreshCountdown(pkg: String) {
+        val appName = BlockedAppsManager.getAppDisplayName(this, pkg)
+        AppTimerCountdownOverlay.start(
+            context = this,
+            packageName = pkg,
+            appName = appName,
+            remainingProvider = {
+                // remaining = timer limit − today's phone usage (DW / usage stats)
+                AppTimersManager.remainingMs(
+                    context = this,
+                    packageName = pkg,
+                    sessionBaselineUsageMs = timerSessionBaselineUsageMs,
+                    sessionStartedAtMs = timerSessionStartedAt,
+                    forceRefresh = false
+                )
+            },
+            onExpired = { maybeDismissTimedOutApp(pkg) }
+        )
+    }
+
+    private fun beginTimerSessionIfNeeded(pkg: String, systemUsedTodayMs: Long) {
+        if (monitoredTimerPackage == pkg && timerSessionStartedAt > 0L) {
+            // Keep baseline aligned with phone usage if stats report more time used.
+            val sessionElapsed =
+                (System.currentTimeMillis() - timerSessionStartedAt).coerceAtLeast(0L)
+            val impliedBaseline = (systemUsedTodayMs - sessionElapsed).coerceAtLeast(0L)
+            if (impliedBaseline > timerSessionBaselineUsageMs) {
+                timerSessionBaselineUsageMs = impliedBaseline
+            }
+            return
+        }
+        if (monitoredTimerPackage != null && monitoredTimerPackage != pkg) {
+            AppTimerCountdownOverlay.stop()
+        }
+        monitoredTimerPackage = pkg
+        timerSessionStartedAt = System.currentTimeMillis()
+        // Baseline = already-used time from the phone (DW / usage stats).
+        timerSessionBaselineUsageMs = systemUsedTodayMs.coerceAtLeast(0L)
+    }
+
+    private fun scheduleAppTimerRecheck(delayMs: Long) {
+        handler.removeCallbacks(appTimerRecheckRunnable)
+        handler.postDelayed(appTimerRecheckRunnable, delayMs)
+    }
+
+    private fun clearAppTimerMonitor() {
+        monitoredTimerPackage = null
+        timerSessionStartedAt = 0L
+        timerSessionBaselineUsageMs = 0L
+        handler.removeCallbacks(appTimerRecheckRunnable)
+        AppTimerCountdownOverlay.stop()
+    }
+
+    private fun maybeDismissTimedOutApp(pkg: String) {
+        val now = System.currentTimeMillis()
+        if (now < blockedSuppressUntil.getOrDefault(pkg, 0L)) return
+
+        AppTimerCountdownOverlay.stop()
+        if (performGlobalAction(GLOBAL_ACTION_HOME)) {
+            blockedSuppressUntil[pkg] = now + BLOCKED_APP_SUPPRESS_MS
+            clearAppTimerMonitor()
+            val appName = BlockedAppsManager.getAppDisplayName(this, pkg)
+            ProtectionInfoPopup.showAppTimerExceeded(this, appName)
+        }
     }
 
     private fun resolveForegroundPackage(event: AccessibilityEvent?): String? {
@@ -674,9 +820,14 @@ class DnsLockAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         handler.removeCallbacks(recheckRunnable)
         handler.removeCallbacks(browserDnsRecheckRunnable)
+        handler.removeCallbacks(appTimerRecheckRunnable)
         onTargetScreen = false
         onBrowserDnsScreen = false
         redirectInProgress = false
+        monitoredTimerPackage = null
+        timerSessionStartedAt = 0L
+        timerSessionBaselineUsageMs = 0L
+        AppTimerCountdownOverlay.stop()
     }
 
     companion object {
@@ -705,5 +856,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val RESET_DELAY_MS = 1200L
         private const val RECHECK_DELAY_MS = 200L
         private const val BROWSER_DNS_BLOCK_COOLDOWN_MS = 800L
+        private const val APP_TIMER_TICK_MS = 1_000L
+        private const val USAGE_STATS_REFRESH_MS = 15_000L
     }
 }

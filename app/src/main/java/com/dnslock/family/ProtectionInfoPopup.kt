@@ -59,6 +59,14 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showAppTimerExceeded(context: Context, appName: String) {
+        show(
+            context = context,
+            title = context.getString(R.string.app_timer_closed_title),
+            message = context.getString(R.string.app_timer_closed_reason, appName)
+        )
+    }
+
     private fun show(context: Context, title: String, message: String) {
         val alertKey = "$title|$message"
         val now = System.currentTimeMillis()

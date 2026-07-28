@@ -125,6 +125,35 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
+            android:text="@string/app_timers_title"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/app_timers_home_summary"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/appTimersStatusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/openAppTimersButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="32dp"
+            android:text="@string/manage_app_timers" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
             android:text="@string/blocked_apps_title"
             android:textSize="16sp"
             android:textStyle="bold" />

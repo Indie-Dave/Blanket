@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dnsScreenLockSwitch: SwitchMaterial
     private lateinit var dnsLockStatusText: TextView
     private lateinit var unlockDnsButton: Button
+    private lateinit var appTimersStatusText: TextView
 
     private var suppressDnsSwitchCallback = false
 
@@ -59,9 +60,14 @@ class MainActivity : AppCompatActivity() {
         dnsScreenLockSwitch = findViewById(R.id.dnsScreenLockSwitch)
         dnsLockStatusText = findViewById(R.id.dnsLockStatusText)
         unlockDnsButton = findViewById(R.id.unlockDnsButton)
+        appTimersStatusText = findViewById(R.id.appTimersStatusText)
 
         findViewById<Button>(R.id.openAccessibilityButton).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
+        findViewById<Button>(R.id.openAppTimersButton).setOnClickListener {
+            startActivity(Intent(this, AppTimersActivity::class.java))
         }
 
         findViewById<Button>(R.id.addBlockedAppButton).setOnClickListener {
@@ -93,7 +99,10 @@ class MainActivity : AppCompatActivity() {
             onUnlockDnsClicked()
         }
 
+        InstalledAppsCache.preload(this)
+
         refreshStatus()
+        refreshAppTimersStatus()
         refreshBlockedAppsList()
         refreshBlockedSitesList()
         refreshBlockedKeywordsList()
@@ -103,6 +112,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        refreshAppTimersStatus()
         refreshBlockedAppsList()
         refreshBlockedSitesList()
         refreshBlockedKeywordsList()
@@ -380,6 +390,15 @@ class MainActivity : AppCompatActivity() {
             row.addView(label)
             row.addView(removeButton)
             blockedKeywordsListContainer.addView(row)
+        }
+    }
+
+    private fun refreshAppTimersStatus() {
+        val count = AppTimersManager.getTimedPackages(this).size
+        appTimersStatusText.text = if (count == 0) {
+            getString(R.string.app_timers_status_none)
+        } else {
+            getString(R.string.app_timers_status_count, count)
         }
     }
 
