@@ -62,6 +62,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private var timerSessionStartedAt = 0L
     private var timerSessionBaselineUsageMs = 0L
     private var lastUsageStatsRefreshAt = 0L
+    private var lastAppTimerEvalAt = 0L
 
     private val toolbarTitleViewIdSuffixes = listOf(
         "action_bar_title",
@@ -72,6 +73,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private val recheckRunnable = Runnable { evaluateAndDismiss(fromRecheck = true) }
     private val browserDnsRecheckRunnable = Runnable { blockBrowserDnsScreen(fromRecheck = true) }
     private val appTimerRecheckRunnable = Runnable { evaluateAppTimerLimit(fromRecheck = true) }
+    private val clearAppTimerRunnable = Runnable { clearAppTimerMonitor() }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -93,7 +95,17 @@ class DnsLockAccessibilityService : AccessibilityService() {
                 evaluateBlockedSite(event)
                 blockBrowserDnsScreen(fromRecheck = false)
             }
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
+                // Throttle — Instagram fires this constantly and was recreating the widget.
+                val now = System.currentTimeMillis()
+                if (now - lastAppTimerEvalAt >= APP_TIMER_EVENT_THROTTLE_MS) {
+                    lastAppTimerEvalAt = now
+                    evaluateAppTimer(event)
+                }
+                maybeBlockUninstall(event)
+                evaluateBlockedSite(event)
+                blockBrowserDnsScreen(fromRecheck = false)
+            }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
                 maybeBlockUninstall(event)
@@ -128,7 +140,19 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     private fun evaluateAppTimer(event: AccessibilityEvent) {
-        val pkg = resolveForegroundPackage(event) ?: return
+        val eventPkg = resolveForegroundPackage(event) ?: return
+        val monitored = monitoredTimerPackage
+        // Prefer the already-monitored timed app when noisy overlays steal the event package.
+        val pkg = if (
+            monitored != null &&
+            eventPkg != monitored &&
+            !isLauncherPackage(eventPkg) &&
+            (isOverlayTransientPackage(eventPkg) || isTimedAppStillForeground(monitored))
+        ) {
+            monitored
+        } else {
+            eventPkg
+        }
         evaluateAppTimerForPackage(pkg)
     }
 
@@ -139,13 +163,22 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     private fun evaluateAppTimerForPackage(pkg: String, fromRecheck: Boolean = false) {
         if (pkg == packageName) {
+            scheduleClearAppTimerMonitor()
+            return
+        }
+
+        // Leaving to the launcher means the timed app is no longer open.
+        if (isLauncherPackage(pkg)) {
             clearAppTimerMonitor()
             return
         }
 
-        // Status bar / launcher flashes shouldn't cancel an active app countdown.
-        if (isTransientPackage(pkg)) {
-            if (monitoredTimerPackage != null) {
+        // Status bar / permission / IME flashes shouldn't cancel an active countdown.
+        if (isOverlayTransientPackage(pkg)) {
+            val monitored = monitoredTimerPackage
+            if (monitored != null) {
+                cancelScheduledClearAppTimer()
+                startOrRefreshCountdown(monitored)
                 scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
             }
             return
@@ -153,12 +186,24 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
         val limitMinutes = AppTimersManager.getLimitMinutes(this, pkg)
         if (limitMinutes <= 0) {
-            clearAppTimerMonitor()
+            val monitored = monitoredTimerPackage
+            if (monitored != null && isTimedAppStillForeground(monitored)) {
+                cancelScheduledClearAppTimer()
+                startOrRefreshCountdown(monitored)
+                scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+                return
+            }
+            if (monitored != null) {
+                scheduleClearAppTimerMonitor()
+            }
             return
         }
 
+        cancelScheduledClearAppTimer()
+
         if (!UsageStatsHelper.hasUsageAccess(this)) {
             beginTimerSessionIfNeeded(pkg, 0L)
+            startOrRefreshCountdown(pkg)
             scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
             return
         }
@@ -179,26 +224,54 @@ class DnsLockAccessibilityService : AccessibilityService() {
             sessionStartedAtMs = timerSessionStartedAt,
             forceRefresh = false
         )
+        startOrRefreshCountdown(pkg)
         if (remaining <= 0L) {
             maybeDismissTimedOutApp(pkg)
             return
         }
-
-        startOrRefreshCountdown(pkg)
 
         if (!fromRecheck || monitoredTimerPackage == pkg) {
             scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
         }
     }
 
-    private fun isTransientPackage(pkg: String): Boolean {
-        return pkg == "com.android.systemui" ||
-            pkg.startsWith("com.android.launcher") ||
+    private fun isLauncherPackage(pkg: String): Boolean {
+        return pkg.startsWith("com.android.launcher") ||
             pkg.startsWith("com.google.android.apps.nexuslauncher") ||
             pkg.startsWith("com.sec.android.app.launcher") ||
+            pkg.contains("quickstep")
+    }
+
+    private fun isOverlayTransientPackage(pkg: String): Boolean {
+        return pkg == "android" ||
+            pkg == "com.android.systemui" ||
+            pkg == "com.android.intentresolver" ||
+            pkg == "com.android.permissioncontroller" ||
+            pkg == "com.google.android.permissioncontroller" ||
+            pkg == "com.samsung.android.permissioncontroller" ||
+            pkg == "com.google.android.packageinstaller" ||
+            pkg == "com.android.packageinstaller" ||
             pkg.startsWith("com.samsung.android.honeyboard") ||
             pkg.contains("inputmethod") ||
-            pkg.contains("quickstep")
+            pkg.contains("screenshot") ||
+            pkg.endsWith(".permissioncontroller")
+    }
+
+    /** True if [pkg] owns an active/focused application window right now. */
+    private fun isTimedAppStillForeground(pkg: String): Boolean {
+        if (rootInActiveWindow?.packageName?.toString() == pkg) return true
+
+        windows?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            if (!window.isActive && !window.isFocused) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                if (root.packageName?.toString() == pkg) return true
+            } finally {
+                root.recycle()
+            }
+        }
+        return false
     }
 
     private fun startOrRefreshCountdown(pkg: String) {
@@ -233,7 +306,8 @@ class DnsLockAccessibilityService : AccessibilityService() {
             return
         }
         if (monitoredTimerPackage != null && monitoredTimerPackage != pkg) {
-            AppTimerCountdownOverlay.stop()
+            // Don't tear down the overlay here — start() will replace it once for the new app.
+            cancelScheduledClearAppTimer()
         }
         monitoredTimerPackage = pkg
         timerSessionStartedAt = System.currentTimeMillis()
@@ -246,7 +320,17 @@ class DnsLockAccessibilityService : AccessibilityService() {
         handler.postDelayed(appTimerRecheckRunnable, delayMs)
     }
 
+    private fun scheduleClearAppTimerMonitor() {
+        handler.removeCallbacks(clearAppTimerRunnable)
+        handler.postDelayed(clearAppTimerRunnable, APP_TIMER_CLEAR_DEBOUNCE_MS)
+    }
+
+    private fun cancelScheduledClearAppTimer() {
+        handler.removeCallbacks(clearAppTimerRunnable)
+    }
+
     private fun clearAppTimerMonitor() {
+        cancelScheduledClearAppTimer()
         monitoredTimerPackage = null
         timerSessionStartedAt = 0L
         timerSessionBaselineUsageMs = 0L
@@ -821,6 +905,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         handler.removeCallbacks(recheckRunnable)
         handler.removeCallbacks(browserDnsRecheckRunnable)
         handler.removeCallbacks(appTimerRecheckRunnable)
+        handler.removeCallbacks(clearAppTimerRunnable)
         onTargetScreen = false
         onBrowserDnsScreen = false
         redirectInProgress = false
@@ -858,5 +943,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val BROWSER_DNS_BLOCK_COOLDOWN_MS = 800L
         private const val APP_TIMER_TICK_MS = 1_000L
         private const val USAGE_STATS_REFRESH_MS = 15_000L
+        private const val APP_TIMER_EVENT_THROTTLE_MS = 400L
+        private const val APP_TIMER_CLEAR_DEBOUNCE_MS = 800L
     }
 }
