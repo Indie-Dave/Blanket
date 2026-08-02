@@ -1,5 +1,7 @@
 package com.dnslock.family
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.PixelFormat
@@ -20,10 +22,15 @@ import kotlin.math.abs
  * Floating countdown shown while a timed app is in the foreground.
  * Left-edge widget: drag horizontally to open/close, vertically to reposition.
  * When closed, only the arrow knob remains visible.
+ * Vertical position is remembered per app across close/reopen.
  */
 object AppTimerCountdownOverlay {
 
+    private const val PREFS_NAME = "app_timer_overlay"
+    private const val KEY_POS_Y_PREFIX = "pos_y_"
+
     private val handler = Handler(Looper.getMainLooper())
+    private var appContext: Context? = null
     private var overlayView: View? = null
     private var timerPanel: View? = null
     private var labelView: TextView? = null
@@ -65,6 +72,10 @@ object AppTimerCountdownOverlay {
         onExpired: () -> Unit
     ) {
         handler.post {
+            // Accessibility overlays must use the service Context for WindowManager.
+            // applicationContext has no valid token and crashes with BadTokenException.
+            appContext = context.applicationContext
+
             // Already showing for this app — only refresh data, never recreate.
             if (activePackage == packageName && overlayView != null) {
                 this.appName = appName
@@ -74,8 +85,9 @@ object AppTimerCountdownOverlay {
                 return@post
             }
 
-            val keepY = currentY.takeIf { activePackage == packageName || overlayView != null }
-            stopInternal(clearPosition = false)
+            // Persist the outgoing app's position before switching/tearing down.
+            persistCurrentPosition()
+            stopInternal()
 
             this.activePackage = packageName
             this.appName = appName
@@ -89,7 +101,7 @@ object AppTimerCountdownOverlay {
             val defaultY = (screenHeight * 0.28f).toInt()
             minY = (48 * density).toInt()
             maxY = (screenHeight - 80 * density).toInt().coerceAtLeast(minY)
-            currentY = (keepY ?: defaultY).coerceIn(minY, maxY)
+            currentY = loadPositionY(appContext ?: context, packageName, defaultY).coerceIn(minY, maxY)
 
             val remaining = remainingProvider().coerceAtLeast(0L)
 
@@ -100,13 +112,9 @@ object AppTimerCountdownOverlay {
             val arrow = view.findViewById<TextView>(R.id.arrowLabel)
             label.text = formatLabel(appName, remaining)
             updateArrow(expand = false, arrow)
-
-            // Measure so we can start collapsed without a visible flash.
-            view.measure(
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-            )
-            view.translationX = -panel.measuredWidth.toFloat()
+            // Hide the panel so WRAP_CONTENT window is only the knob (no invisible hitbox).
+            panel.visibility = View.GONE
+            view.translationX = 0f
 
             val wm = context.getSystemService(WindowManager::class.java)
             val params = WindowManager.LayoutParams(
@@ -125,7 +133,13 @@ object AppTimerCountdownOverlay {
 
             attachDragHandling(view, panel)
 
-            wm.addView(view, params)
+            try {
+                wm.addView(view, params)
+            } catch (_: WindowManager.BadTokenException) {
+                return@post
+            } catch (_: IllegalStateException) {
+                return@post
+            }
             overlayView = view
             timerPanel = panel
             labelView = label
@@ -139,26 +153,53 @@ object AppTimerCountdownOverlay {
     }
 
     fun stop() {
-        handler.post { stopInternal(clearPosition = true) }
-    }
-
-    private fun updateLabel(remainingMs: Long) {
-        val label = labelView ?: return
-        val panel = timerPanel ?: return
-        val view = overlayView ?: return
-        label.text = formatLabel(appName, remainingMs)
-        // Keep only the knob on-screen if the label width changed while collapsed.
-        if (!expanded && !userDragging && snapAnimator?.isRunning != true) {
-            view.post {
-                if (overlayView !== view || expanded || userDragging) return@post
-                val panelWidth = panel.width
-                if (panelWidth <= 0) return@post
-                view.translationX = -panelWidth.toFloat()
-            }
+        handler.post {
+            persistCurrentPosition()
+            stopInternal()
         }
     }
 
-    private fun collapsedTranslation(panel: View): Float = -panel.width.toFloat()
+    private fun updateLabel(remainingMs: Long) {
+        labelView?.text = formatLabel(appName, remainingMs)
+    }
+
+    private fun collapsedTranslation(panel: View): Float {
+        val width = if (panel.width > 0) panel.width else panel.measuredWidth
+        return -width.toFloat()
+    }
+
+    /**
+     * Makes the timer panel take layout space again so it can slide in.
+     * While [View.GONE], the overlay window wraps to only the knob (correct hitbox).
+     */
+    private fun revealPanelForSlide(view: View, panel: View) {
+        if (panel.visibility == View.VISIBLE) return
+        panel.visibility = View.VISIBLE
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        view.translationX = -panel.measuredWidth.toFloat()
+        val params = layoutParams ?: return
+        val wm = windowManager ?: return
+        try {
+            wm.updateViewLayout(view, params)
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    /** After collapse animation, drop the panel so the window hitbox shrinks to the knob. */
+    private fun hidePanelAfterCollapse(view: View, panel: View) {
+        if (expanded || userDragging) return
+        panel.visibility = View.GONE
+        view.translationX = 0f
+        val params = layoutParams ?: return
+        val wm = windowManager ?: return
+        try {
+            wm.updateViewLayout(view, params)
+        } catch (_: IllegalArgumentException) {
+        }
+    }
 
     private fun attachDragHandling(view: View, panel: View) {
         val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop
@@ -202,6 +243,11 @@ object AppTimerCountdownOverlay {
                         dragging = true
                         userDragging = true
                         horizontalDrag = abs(dx) >= abs(dy)
+                        // Only restore panel layout when sliding horizontally.
+                        if (horizontalDrag && !expanded) {
+                            revealPanelForSlide(v, panel)
+                            startTranslationX = v.translationX
+                        }
                     }
                     if (dragging) {
                         if (horizontalDrag) {
@@ -240,6 +286,13 @@ object AppTimerCountdownOverlay {
                         snapTo(shouldExpand)
                     } else if (!dragging && event.actionMasked == MotionEvent.ACTION_UP) {
                         snapTo(!expanded)
+                    } else if (!expanded && panel.visibility == View.VISIBLE) {
+                        // Cancelled / vertical drag while collapsed — shrink hitbox again.
+                        hidePanelAfterCollapse(v, panel)
+                    }
+
+                    if (dragging && !horizontalDrag) {
+                        persistCurrentPosition()
                     }
 
                     tracking = false
@@ -258,15 +311,43 @@ object AppTimerCountdownOverlay {
         val panel = timerPanel ?: return
         expanded = expand
         updateArrow(expand, arrowLabel)
+        if (expand) {
+            revealPanelForSlide(view, panel)
+        }
+        val start = view.translationX
         val target = if (expand) 0f else collapsedTranslation(panel)
         snapAnimator?.cancel()
-        snapAnimator = ValueAnimator.ofFloat(view.translationX, target).apply {
+        if (start == target) {
+            if (!expand) hidePanelAfterCollapse(view, panel)
+            return
+        }
+        snapAnimator = ValueAnimator.ofFloat(start, target).apply {
             duration = 160L
             interpolator = DecelerateInterpolator()
             addUpdateListener { anim ->
                 val current = overlayView ?: return@addUpdateListener
                 current.translationX = anim.animatedValue as Float
             }
+            addListener(object : AnimatorListenerAdapter() {
+                private var cancelled = false
+
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                    if (snapAnimator === this@apply) {
+                        snapAnimator = null
+                    }
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    if (snapAnimator === this@apply) {
+                        snapAnimator = null
+                    }
+                    // Animator also ends after cancel — only shrink hitbox when collapse finished.
+                    if (!cancelled && !expand) {
+                        hidePanelAfterCollapse(view, panel)
+                    }
+                }
+            })
             start()
         }
     }
@@ -275,7 +356,26 @@ object AppTimerCountdownOverlay {
         arrow?.text = if (expand) "‹" else "›"
     }
 
-    private fun stopInternal(clearPosition: Boolean) {
+    private fun persistCurrentPosition() {
+        val pkg = activePackage ?: return
+        val ctx = appContext ?: return
+        if (currentY <= 0) return
+        savePositionY(ctx, pkg, currentY)
+    }
+
+    private fun loadPositionY(context: Context, packageName: String, defaultY: Int): Int {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getInt(KEY_POS_Y_PREFIX + packageName, defaultY)
+    }
+
+    private fun savePositionY(context: Context, packageName: String, y: Int) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_POS_Y_PREFIX + packageName, y)
+            .apply()
+    }
+
+    private fun stopInternal() {
         handler.removeCallbacks(tickRunnable)
         snapAnimator?.cancel()
         snapAnimator = null
@@ -285,9 +385,6 @@ object AppTimerCountdownOverlay {
         appName = ""
         expanded = false
         userDragging = false
-        if (clearPosition) {
-            currentY = 0
-        }
 
         val view = overlayView ?: return
         try {
