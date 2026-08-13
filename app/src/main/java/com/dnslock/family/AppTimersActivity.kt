@@ -64,13 +64,16 @@ class AppTimersActivity : AppCompatActivity() {
         })
 
         InstalledAppsCache.preload(this)
-        showCachedAppsImmediately()
+        DeviceAuth.hideUntilUnlocked(this)
     }
 
     override fun onResume() {
         super.onResume()
-        refreshUsageAccessStatus()
-        loadAppsAsync()
+        DeviceAuth.requireUnlock(this) {
+            refreshUsageAccessStatus()
+            showCachedAppsImmediately()
+            loadAppsAsync()
+        }
     }
 
     override fun onDestroy() {

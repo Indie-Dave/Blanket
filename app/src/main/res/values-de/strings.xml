@@ -56,6 +56,11 @@
     <string name="password_incorrect">Falsches Passwort</string>
     <string name="password_set_success">Passwort gespeichert</string>
     <string name="password_required">Bitte zuerst ein Passwort festlegen</string>
+    <string name="device_lock_title">Blanket entsperren</string>
+    <string name="device_lock_subtitle">Nutze PIN, Passwort, Muster oder Biometrie</string>
+    <string name="device_lock_not_set_title">Displaysperre erforderlich</string>
+    <string name="device_lock_not_set_message">Lege eine PIN, ein Passwort, ein Muster oder eine biometrische Sperre auf diesem Telefon fest, um Blanket zu öffnen.</string>
+    <string name="device_lock_set_lock">Sperre einrichten</string>
     <string name="dns_screen_lock_title">DNS-Bildschirmsperre</string>
     <string name="dns_screen_lock_summary">Verhindert den Zugriff auf DNS-Einstellungen</string>
     <string name="unlock_dns_block">DNS-Sperre temporär entsperren</string>

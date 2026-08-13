@@ -56,6 +56,11 @@
     <string name="password_incorrect">Incorrect password</string>
     <string name="password_set_success">Password saved</string>
     <string name="password_required">Please set a password first</string>
+    <string name="device_lock_title">Unlock Blanket</string>
+    <string name="device_lock_subtitle">Use your phone PIN, password, pattern, or biometrics</string>
+    <string name="device_lock_not_set_title">Screen lock required</string>
+    <string name="device_lock_not_set_message">Set a PIN, password, pattern, or biometric lock on this phone to open Blanket.</string>
+    <string name="device_lock_set_lock">Set screen lock</string>
     <string name="dns_screen_lock_title">DNS screen lock</string>
     <string name="dns_screen_lock_summary">Prevents access to DNS settings</string>
     <string name="unlock_dns_block">Temporarily unlock DNS block</string>

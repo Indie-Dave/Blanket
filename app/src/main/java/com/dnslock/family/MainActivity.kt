@@ -100,23 +100,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         InstalledAppsCache.preload(this)
-
-        refreshStatus()
-        refreshAppTimersStatus()
-        refreshBlockedAppsList()
-        refreshBlockedSitesList()
-        refreshBlockedKeywordsList()
-        refreshPasswordAndDnsStatus()
+        DeviceAuth.hideUntilUnlocked(this)
     }
 
     override fun onResume() {
         super.onResume()
-        refreshStatus()
-        refreshAppTimersStatus()
-        refreshBlockedAppsList()
-        refreshBlockedSitesList()
-        refreshBlockedKeywordsList()
-        refreshPasswordAndDnsStatus()
+        DeviceAuth.requireUnlock(this) {
+            refreshStatus()
+            refreshAppTimersStatus()
+            refreshBlockedAppsList()
+            refreshBlockedSitesList()
+            refreshBlockedKeywordsList()
+            refreshPasswordAndDnsStatus()
+        }
     }
 
     private fun onDnsScreenLockToggled(enable: Boolean) {
