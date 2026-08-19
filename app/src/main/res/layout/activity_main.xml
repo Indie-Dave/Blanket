@@ -154,6 +154,35 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
+            android:text="@string/short_form_title"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/short_form_summary"
+            android:textSize="12sp" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/youtubeShortsSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/block_youtube_shorts" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/instagramReelsSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="32dp"
+            android:text="@string/block_instagram_reels" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
             android:text="@string/blocked_apps_title"
             android:textSize="16sp"
             android:textStyle="bold" />

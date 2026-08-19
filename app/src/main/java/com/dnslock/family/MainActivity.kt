@@ -35,8 +35,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dnsLockStatusText: TextView
     private lateinit var unlockDnsButton: Button
     private lateinit var appTimersStatusText: TextView
+    private lateinit var youtubeShortsSwitch: SwitchMaterial
+    private lateinit var instagramReelsSwitch: SwitchMaterial
 
     private var suppressDnsSwitchCallback = false
+    private var suppressShortFormSwitchCallback = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +64,8 @@ class MainActivity : AppCompatActivity() {
         dnsLockStatusText = findViewById(R.id.dnsLockStatusText)
         unlockDnsButton = findViewById(R.id.unlockDnsButton)
         appTimersStatusText = findViewById(R.id.appTimersStatusText)
+        youtubeShortsSwitch = findViewById(R.id.youtubeShortsSwitch)
+        instagramReelsSwitch = findViewById(R.id.instagramReelsSwitch)
 
         findViewById<Button>(R.id.openAccessibilityButton).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -99,6 +104,16 @@ class MainActivity : AppCompatActivity() {
             onUnlockDnsClicked()
         }
 
+        youtubeShortsSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressShortFormSwitchCallback) return@setOnCheckedChangeListener
+            ShortFormBlockManager.setYoutubeShortsBlocked(this, isChecked)
+        }
+
+        instagramReelsSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressShortFormSwitchCallback) return@setOnCheckedChangeListener
+            ShortFormBlockManager.setInstagramReelsBlocked(this, isChecked)
+        }
+
         InstalledAppsCache.preload(this)
         DeviceAuth.hideUntilUnlocked(this)
     }
@@ -112,6 +127,7 @@ class MainActivity : AppCompatActivity() {
             refreshBlockedSitesList()
             refreshBlockedKeywordsList()
             refreshPasswordAndDnsStatus()
+            refreshShortFormSwitches()
         }
     }
 
@@ -163,6 +179,13 @@ class MainActivity : AppCompatActivity() {
         suppressDnsSwitchCallback = true
         dnsScreenLockSwitch.isChecked = checked
         suppressDnsSwitchCallback = false
+    }
+
+    private fun refreshShortFormSwitches() {
+        suppressShortFormSwitchCallback = true
+        youtubeShortsSwitch.isChecked = ShortFormBlockManager.isYoutubeShortsBlocked(this)
+        instagramReelsSwitch.isChecked = ShortFormBlockManager.isInstagramReelsBlocked(this)
+        suppressShortFormSwitchCallback = false
     }
 
     private fun refreshPasswordAndDnsStatus() {

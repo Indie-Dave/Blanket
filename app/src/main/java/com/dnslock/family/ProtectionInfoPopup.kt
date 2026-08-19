@@ -59,6 +59,20 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showBlockedShortForm(context: Context, kind: ShortFormBlockManager.Kind) {
+        val message = when (kind) {
+            ShortFormBlockManager.Kind.YOUTUBE_SHORTS ->
+                context.getString(R.string.youtube_shorts_blocked_reason)
+            ShortFormBlockManager.Kind.INSTAGRAM_REELS ->
+                context.getString(R.string.instagram_reels_blocked_reason)
+        }
+        show(
+            context = context,
+            title = context.getString(R.string.short_form_blocked_title),
+            message = message
+        )
+    }
+
     fun showAppTimerExceeded(context: Context, appName: String) {
         show(
             context = context,

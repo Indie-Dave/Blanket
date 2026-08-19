@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="Blanket App">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-08-13T19:54:11.691873700Z">
+        <DropdownSelection timestamp="2026-08-19T14:31:18.189132300Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=R5CWA1QPKHD" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\David\.android\avd\Phone_Emulator.avd" />
             </handle>
           </Target>
         </DropdownSelection>

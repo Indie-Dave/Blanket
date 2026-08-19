@@ -63,6 +63,8 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private var timerSessionBaselineUsageMs = 0L
     private var lastUsageStatsRefreshAt = 0L
     private var lastAppTimerEvalAt = 0L
+    private var lastShortFormEvalAt = 0L
+    private var lastShortFormBlockAt = 0L
 
     private val toolbarTitleViewIdSuffixes = listOf(
         "action_bar_title",
@@ -93,6 +95,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
                 evaluateAppTimer(event)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
+                evaluateShortForm(event, force = true)
                 blockBrowserDnsScreen(fromRecheck = false)
             }
             AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
@@ -104,18 +107,21 @@ class DnsLockAccessibilityService : AccessibilityService() {
                 }
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
+                evaluateShortForm(event, force = false)
                 blockBrowserDnsScreen(fromRecheck = false)
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
+                evaluateShortForm(event, force = false)
                 // Fragment navigations often only emit content/focus changes.
                 blockBrowserDnsScreen(fromRecheck = false)
             }
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
+                evaluateShortForm(event, force = false)
             }
         }
 
@@ -455,6 +461,138 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun evaluateShortForm(event: AccessibilityEvent, force: Boolean) {
+        if (!ShortFormBlockManager.isAnyEnabled(this)) return
+        if (redirectInProgress) return
+
+        val now = System.currentTimeMillis()
+        if (!force && now - lastShortFormEvalAt < SHORT_FORM_EVAL_THROTTLE_MS) return
+        lastShortFormEvalAt = now
+        if (now - lastShortFormBlockAt < SHORT_FORM_SUPPRESS_MS) return
+
+        val pkg = resolveForegroundPackage(event) ?: return
+        val youtubeEnabled = ShortFormBlockManager.isYoutubeShortsBlocked(this)
+        val instagramEnabled = ShortFormBlockManager.isInstagramReelsBlocked(this)
+        val inBrowser = pkg in browserPackages
+        val relevant = inBrowser ||
+            (youtubeEnabled && ShortFormBlockManager.isYoutubePackage(pkg)) ||
+            (instagramEnabled && ShortFormBlockManager.isInstagramPackage(pkg))
+        if (!relevant) return
+
+        if (inBrowser && isSoftKeyboardVisible()) return
+
+        val extraTexts = LinkedHashSet<String>()
+        event.text?.forEach { chunk ->
+            chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { extraTexts.add(it) }
+        }
+        event.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            extraTexts.add(it)
+        }
+
+        if (inBrowser) {
+            rootInActiveWindow?.let { root ->
+                try {
+                    if (root.packageName?.toString() == pkg) {
+                        collectUrlCandidatesFromRoot(root, pkg, extraTexts)
+                    }
+                } finally {
+                    root.recycle()
+                }
+            }
+        }
+
+        if (youtubeEnabled && extraTexts.any { ShortFormBlockManager.urlLooksLikeYoutubeShorts(it) }) {
+            dismissShortForm(pkg, inBrowser, ShortFormBlockManager.Kind.YOUTUBE_SHORTS)
+            return
+        }
+        if (instagramEnabled && extraTexts.any { ShortFormBlockManager.urlLooksLikeInstagramReels(it) }) {
+            dismissShortForm(pkg, inBrowser, ShortFormBlockManager.Kind.INSTAGRAM_REELS)
+            return
+        }
+
+        var detected = detectShortFormInRoot(
+            rootInActiveWindow,
+            pkg,
+            extraTexts,
+            youtubeEnabled,
+            instagramEnabled,
+            inBrowser
+        )
+        if (detected == null) {
+            windows?.forEach { window ->
+                if (detected != null) return@forEach
+                if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+                val root = window.root ?: return@forEach
+                try {
+                    if (root.packageName?.toString() == pkg) {
+                        detected = ShortFormBlockManager.detectInTree(
+                            root = root,
+                            packageName = pkg,
+                            extraTexts = extraTexts,
+                            youtubeEnabled = youtubeEnabled,
+                            instagramEnabled = instagramEnabled,
+                            inBrowser = inBrowser
+                        )
+                    }
+                } finally {
+                    root.recycle()
+                }
+            }
+        }
+
+        val kind = detected ?: return
+        dismissShortForm(pkg, inBrowser, kind)
+    }
+
+    private fun detectShortFormInRoot(
+        root: AccessibilityNodeInfo?,
+        pkg: String,
+        extraTexts: Collection<String>,
+        youtubeEnabled: Boolean,
+        instagramEnabled: Boolean,
+        inBrowser: Boolean
+    ): ShortFormBlockManager.Kind? {
+        root ?: return null
+        return try {
+            if (root.packageName?.toString() != pkg) return null
+            ShortFormBlockManager.detectInTree(
+                root = root,
+                packageName = pkg,
+                extraTexts = extraTexts,
+                youtubeEnabled = youtubeEnabled,
+                instagramEnabled = instagramEnabled,
+                inBrowser = inBrowser
+            )
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun dismissShortForm(
+        pkg: String,
+        inBrowser: Boolean,
+        kind: ShortFormBlockManager.Kind
+    ) {
+        lastShortFormBlockAt = System.currentTimeMillis()
+        if (inBrowser) {
+            redirectInProgress = true
+            val url = when (kind) {
+                ShortFormBlockManager.Kind.YOUTUBE_SHORTS -> YOUTUBE_HOME_URL
+                ShortFormBlockManager.Kind.INSTAGRAM_REELS -> INSTAGRAM_HOME_URL
+            }
+            redirectBrowserToUrl(pkg, url)
+            ProtectionInfoPopup.showBlockedShortForm(this, kind)
+            handler.postDelayed({ redirectInProgress = false }, REDIRECT_LOCK_MS)
+            return
+        }
+
+        val left = performGlobalAction(GLOBAL_ACTION_BACK) ||
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        if (left) {
+            ProtectionInfoPopup.showBlockedShortForm(this, kind)
+        }
+    }
+
     private fun evaluateBlockedSite(event: AccessibilityEvent) {
         if (redirectInProgress) return
 
@@ -705,10 +843,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         matchedDomain: String? = null,
         matchedKeyword: String? = null
     ) {
-        // Try to rewrite the current tab's address bar; fall back to opening Google in-browser.
-        if (!trySetUrlBarToGoogle(browserPackage)) {
-            openGoogleViaIntent(browserPackage)
-        }
+        redirectBrowserToUrl(browserPackage, SAFE_REDIRECT_URL)
 
         when {
             matchedDomain != null -> ProtectionInfoPopup.showBlockedSite(this, matchedDomain)
@@ -719,7 +854,13 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }, REDIRECT_LOCK_MS)
     }
 
-    private fun trySetUrlBarToGoogle(browserPackage: String): Boolean {
+    private fun redirectBrowserToUrl(browserPackage: String, url: String) {
+        if (!trySetUrlBarToUrl(browserPackage, url)) {
+            openUrlViaIntent(browserPackage, url)
+        }
+    }
+
+    private fun trySetUrlBarToUrl(browserPackage: String, url: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val urlBar = findUrlBarNode(root, browserPackage) ?: return false
 
@@ -733,22 +874,22 @@ class DnsLockAccessibilityService : AccessibilityService() {
         // Omnibox needs a moment after focus before SET_TEXT works reliably.
         handler.postDelayed({
             val freshRoot = rootInActiveWindow ?: run {
-                openGoogleViaIntent(browserPackage)
+                openUrlViaIntent(browserPackage, url)
                 return@postDelayed
             }
             val focusedBar = findUrlBarNode(freshRoot, browserPackage)
             if (focusedBar == null) {
-                openGoogleViaIntent(browserPackage)
+                openUrlViaIntent(browserPackage, url)
                 return@postDelayed
             }
             try {
                 val args = Bundle()
                 args.putCharSequence(
                     AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                    SAFE_REDIRECT_URL
+                    url
                 )
                 focusedBar.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
-                openGoogleViaIntent(browserPackage)
+                openUrlViaIntent(browserPackage, url)
             } finally {
                 focusedBar.recycle()
             }
@@ -786,9 +927,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
         return null
     }
 
-    private fun openGoogleViaIntent(browserPackage: String): Boolean {
+    private fun openUrlViaIntent(browserPackage: String, url: String): Boolean {
         return try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(SAFE_REDIRECT_URL)).apply {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                 setPackage(browserPackage)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -796,7 +937,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
             true
         } catch (_: Exception) {
             try {
-                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(SAFE_REDIRECT_URL)).apply {
+                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 startActivity(fallback)
@@ -945,5 +1086,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val USAGE_STATS_REFRESH_MS = 15_000L
         private const val APP_TIMER_EVENT_THROTTLE_MS = 400L
         private const val APP_TIMER_CLEAR_DEBOUNCE_MS = 800L
+        private const val SHORT_FORM_EVAL_THROTTLE_MS = 350L
+        private const val SHORT_FORM_SUPPRESS_MS = 2_500L
+        private const val YOUTUBE_HOME_URL = "https://www.youtube.com"
+        private const val INSTAGRAM_HOME_URL = "https://www.instagram.com"
     }
 }
