@@ -5,6 +5,12 @@
     <string name="accessibility_service_description">
         Automatically minimizes the Settings app on network DNS screens, forces browsers to use system DNS, closes blocked apps and websites, enforces app timers, blocks keywords in the browser, can block YouTube Shorts and Instagram Reels, and prevents uninstalling Blanket.
     </string>
+    <string name="block_lists_title">Block lists</string>
+    <string name="block_lists_expand">Show block lists</string>
+    <string name="block_lists_collapse">Hide block lists</string>
+    <string name="block_list_tab_apps">Apps</string>
+    <string name="block_list_tab_websites">Websites</string>
+    <string name="block_list_tab_keywords">Keywords</string>
     <string name="blocked_apps_title">Blocked apps</string>
     <string name="blocked_apps_hint">Enter app name (e.g. Chrome, YouTube)</string>
     <string name="add_blocked_app">Add to list</string>

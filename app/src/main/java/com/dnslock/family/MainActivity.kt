@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.switchmaterial.SwitchMaterial
 import java.text.DateFormat
 import java.util.Date
@@ -20,6 +21,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dnsStatusDot: View
     private lateinit var accessibilityStatusText: TextView
     private lateinit var batteryStatusText: TextView
+    private lateinit var blockListsHeader: View
+    private lateinit var blockListsChevron: TextView
+    private lateinit var blockListsDropdownContent: View
+    private lateinit var blockListTabs: MaterialButtonToggleGroup
+    private lateinit var blockListAppsPanel: View
+    private lateinit var blockListSitesPanel: View
+    private lateinit var blockListKeywordsPanel: View
     private lateinit var blockedAppNameInput: EditText
     private lateinit var blockedAppsEmptyText: TextView
     private lateinit var blockedAppsListContainer: LinearLayout
@@ -29,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var blockedKeywordInput: EditText
     private lateinit var blockedKeywordsEmptyText: TextView
     private lateinit var blockedKeywordsListContainer: LinearLayout
+    private var blockListsExpanded = false
     private lateinit var passwordStatusText: TextView
     private lateinit var setPasswordButton: Button
     private lateinit var dnsScreenLockSwitch: SwitchMaterial
@@ -40,6 +49,7 @@ class MainActivity : AppCompatActivity() {
 
     private var suppressDnsSwitchCallback = false
     private var suppressShortFormSwitchCallback = false
+    private var wasStopped = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,6 +59,13 @@ class MainActivity : AppCompatActivity() {
         dnsStatusDot = findViewById(R.id.dnsStatusDot)
         accessibilityStatusText = findViewById(R.id.accessibilityStatusText)
         batteryStatusText = findViewById(R.id.batteryStatusText)
+        blockListsHeader = findViewById(R.id.blockListsHeader)
+        blockListsChevron = findViewById(R.id.blockListsChevron)
+        blockListsDropdownContent = findViewById(R.id.blockListsDropdownContent)
+        blockListTabs = findViewById(R.id.blockListTabs)
+        blockListAppsPanel = findViewById(R.id.blockListAppsPanel)
+        blockListSitesPanel = findViewById(R.id.blockListSitesPanel)
+        blockListKeywordsPanel = findViewById(R.id.blockListKeywordsPanel)
         blockedAppNameInput = findViewById(R.id.blockedAppNameInput)
         blockedAppsEmptyText = findViewById(R.id.blockedAppsEmptyText)
         blockedAppsListContainer = findViewById(R.id.blockedAppsListContainer)
@@ -87,6 +104,17 @@ class MainActivity : AppCompatActivity() {
             addBlockedKeyword()
         }
 
+        blockListsHeader.setOnClickListener {
+            setBlockListsExpanded(!blockListsExpanded)
+        }
+
+        blockListTabs.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) showBlockListTab(checkedId)
+        }
+
+        setBlockListsExpanded(false)
+        showBlockListTab(R.id.blockListTabApps)
+
         findViewById<Button>(R.id.disableBatteryOptimizationButton).setOnClickListener {
             BatteryOptimizationHelper.requestExemption(this)
         }
@@ -118,8 +146,35 @@ class MainActivity : AppCompatActivity() {
         DeviceAuth.hideUntilUnlocked(this)
     }
 
+    private fun setBlockListsExpanded(expanded: Boolean) {
+        blockListsExpanded = expanded
+        blockListsDropdownContent.visibility = if (expanded) View.VISIBLE else View.GONE
+        blockListsChevron.text = if (expanded) "▼" else "▶"
+        blockListsHeader.contentDescription = getString(
+            if (expanded) R.string.block_lists_collapse else R.string.block_lists_expand
+        )
+    }
+
+    private fun showBlockListTab(checkedId: Int) {
+        blockListAppsPanel.visibility =
+            if (checkedId == R.id.blockListTabApps) View.VISIBLE else View.GONE
+        blockListSitesPanel.visibility =
+            if (checkedId == R.id.blockListTabWebsites) View.VISIBLE else View.GONE
+        blockListKeywordsPanel.visibility =
+            if (checkedId == R.id.blockListTabKeywords) View.VISIBLE else View.GONE
+    }
+
+    override fun onStop() {
+        super.onStop()
+        wasStopped = true
+    }
+
     override fun onResume() {
         super.onResume()
+        if (wasStopped) {
+            setBlockListsExpanded(false)
+            wasStopped = false
+        }
         DeviceAuth.requireUnlock(this) {
             refreshStatus()
             refreshAppTimersStatus()

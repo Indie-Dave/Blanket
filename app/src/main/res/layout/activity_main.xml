@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -179,135 +180,217 @@
             android:layout_marginBottom="32dp"
             android:text="@string/block_instagram_reels" />
 
-        <TextView
+        <LinearLayout
+            android:id="@+id/blockListsHeader"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/blocked_apps_title"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingVertical="8dp">
 
-        <EditText
-            android:id="@+id/blockedAppNameInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:hint="@string/blocked_apps_hint"
-            android:imeOptions="actionDone"
-            android:inputType="textCapWords"
-            android:maxLines="1" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/block_lists_title"
+                android:textSize="16sp"
+                android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/addBlockedAppButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:text="@string/add_blocked_app" />
+            <TextView
+                android:id="@+id/blockListsChevron"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:importantForAccessibility="no"
+                android:text="▶"
+                android:textSize="14sp" />
 
-        <TextView
-            android:id="@+id/blockedAppsEmptyText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/blocked_apps_empty"
-            android:textSize="14sp" />
+        </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/blockedAppsListContainer"
+            android:id="@+id/blockListsDropdownContent"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="32dp"
-            android:orientation="vertical" />
+            android:orientation="vertical"
+            android:visibility="gone">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/blocked_sites_title"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/blockListTabs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:checkedButton="@id/blockListTabApps"
+                app:selectionRequired="true"
+                app:singleSelection="true">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/blocked_sites_summary"
-            android:textSize="12sp" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/blockListTabApps"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="@string/block_list_tab_apps"
+                    android:textSize="12sp" />
 
-        <EditText
-            android:id="@+id/blockedSiteInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:hint="@string/blocked_sites_hint"
-            android:imeOptions="actionDone"
-            android:inputType="textUri"
-            android:maxLines="1" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/blockListTabWebsites"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="@string/block_list_tab_websites"
+                    android:textSize="12sp" />
 
-        <Button
-            android:id="@+id/addBlockedSiteButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:text="@string/add_blocked_site" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/blockListTabKeywords"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="@string/block_list_tab_keywords"
+                    android:textSize="12sp" />
 
-        <TextView
-            android:id="@+id/blockedSitesEmptyText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/blocked_sites_empty"
-            android:textSize="14sp" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
 
-        <LinearLayout
-            android:id="@+id/blockedSitesListContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="32dp"
-            android:orientation="vertical" />
+            <LinearLayout
+                android:id="@+id/blockListAppsPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/blocked_keywords_title"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+                <EditText
+                    android:id="@+id/blockedAppNameInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:hint="@string/blocked_apps_hint"
+                    android:imeOptions="actionDone"
+                    android:inputType="textCapWords"
+                    android:maxLines="1" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:text="@string/blocked_keywords_summary"
-            android:textSize="12sp" />
+                <Button
+                    android:id="@+id/addBlockedAppButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/add_blocked_app" />
 
-        <EditText
-            android:id="@+id/blockedKeywordInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
-            android:hint="@string/blocked_keywords_hint"
-            android:imeOptions="actionDone"
-            android:inputType="text"
-            android:maxLines="1" />
+                <TextView
+                    android:id="@+id/blockedAppsEmptyText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/blocked_apps_empty"
+                    android:textSize="14sp" />
 
-        <Button
-            android:id="@+id/addBlockedKeywordButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:text="@string/add_blocked_keyword" />
+                <LinearLayout
+                    android:id="@+id/blockedAppsListContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
 
-        <TextView
-            android:id="@+id/blockedKeywordsEmptyText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/blocked_keywords_empty"
-            android:textSize="14sp" />
+            </LinearLayout>
 
-        <LinearLayout
-            android:id="@+id/blockedKeywordsListContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
+            <LinearLayout
+                android:id="@+id/blockListSitesPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/blocked_sites_summary"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/blockedSiteInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:hint="@string/blocked_sites_hint"
+                    android:imeOptions="actionDone"
+                    android:inputType="textUri"
+                    android:maxLines="1" />
+
+                <Button
+                    android:id="@+id/addBlockedSiteButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/add_blocked_site" />
+
+                <TextView
+                    android:id="@+id/blockedSitesEmptyText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/blocked_sites_empty"
+                    android:textSize="14sp" />
+
+                <LinearLayout
+                    android:id="@+id/blockedSitesListContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/blockListKeywordsPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/blocked_keywords_summary"
+                    android:textSize="12sp" />
+
+                <EditText
+                    android:id="@+id/blockedKeywordInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:hint="@string/blocked_keywords_hint"
+                    android:imeOptions="actionDone"
+                    android:inputType="text"
+                    android:maxLines="1" />
+
+                <Button
+                    android:id="@+id/addBlockedKeywordButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/add_blocked_keyword" />
+
+                <TextView
+                    android:id="@+id/blockedKeywordsEmptyText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/blocked_keywords_empty"
+                    android:textSize="14sp" />
+
+                <LinearLayout
+                    android:id="@+id/blockedKeywordsListContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+            </LinearLayout>
+
+        </LinearLayout>
 
     </LinearLayout>
 
