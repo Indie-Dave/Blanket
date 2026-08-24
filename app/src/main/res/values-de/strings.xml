@@ -83,8 +83,8 @@
     <string name="dns_browser_blocked_reason">Das Ändern von DNS im Browser ist nicht erlaubt, solange der Schutz aktiv ist.</string>
 
     <string name="app_timers_title">App-Timer</string>
-    <string name="app_timers_home_summary">Tägliches Zeitlimit für jede App festlegen. Kein Passwort nötig — Timer jederzeit ändern.</string>
-    <string name="app_timers_summary">App wählen und ein Tageslimit setzen. Verbleibende Zeit ist immer Limit minus heutige Nutzungszeit vom Telefon (dieselbe Quelle wie Digital Wellbeing). Ist das Limit erreicht, schließt Blanket die App. Timer werden um Mitternacht zurückgesetzt. Kein Passwort nötig.</string>
+    <string name="app_timers_home_summary">Tägliches Zeitlimit oder Sperre zu bestimmten Uhrzeiten. Kein Passwort nötig — jederzeit ändern.</string>
+    <string name="app_timers_summary">App wählen, um ein Tageslimit und optionale Sperrzeiten zu setzen. Verbleibende Zeit ist immer Limit minus heutige Nutzungszeit vom Telefon (dieselbe Quelle wie Digital Wellbeing). Ist das Limit erreicht oder eine Sperrzeit aktiv, schließt Blanket die App. Tages-Timer werden um Mitternacht zurückgesetzt. Kein Passwort nötig.</string>
     <string name="app_timers_search_hint">Apps suchen</string>
     <string name="manage_app_timers">App-Timer verwalten</string>
     <string name="open_usage_access_settings">Nutzungszugriff aktivieren</string>
@@ -96,7 +96,7 @@
     <string name="edit_app_timer">Bearbeiten</string>
     <string name="remove_app_timer">Limit entfernen</string>
     <string name="set_app_timer_for">Timer für %1$s</string>
-    <string name="set_app_timer_dialog_message">Tägliches Limit (Stunden und Minuten). Beide auf 0 setzen oder Entfernen tippen zum Löschen.</string>
+    <string name="set_app_timer_dialog_message">Tägliches Limit (Stunden und Minuten). Beide auf 0 setzen, um nur das Tageslimit zu löschen. Entfernen löscht Limit und alle Sperrzeiten.</string>
     <string name="app_timer_hours_label">Std</string>
     <string name="app_timer_minutes_label">Min</string>
     <string name="app_timer_no_limit">Kein Limit · heute genutzt: %1$s</string>
@@ -104,6 +104,18 @@
     <string name="app_timer_exceeded">Limit erreicht (%1$s) · heute genutzt %2$s</string>
     <string name="app_timer_saved">Timer für %1$s auf %2$s pro Tag gesetzt</string>
     <string name="app_timer_removed">App-Timer entfernt</string>
+    <string name="app_timer_block_windows_title">Gesperrte Zeiten</string>
+    <string name="app_timer_block_windows_message">Sperrt diese App in diesen Zeiträumen vollständig. Über-Mitternacht-Zeiträume (z. B. 21:00–07:00) sind erlaubt. Mehrere Zeiträume möglich.</string>
+    <string name="app_timer_add_block_window">Zeitraum hinzufügen</string>
+    <string name="app_timer_remove_block_window">Entfernen</string>
+    <string name="app_timer_blocked_now">Jetzt gesperrt (%1$s) · heute genutzt: %2$s</string>
+    <string name="app_timer_blocks_at">Sperrt %1$s · heute genutzt: %2$s</string>
+    <string name="app_timer_remaining_with_blocks">%1$s übrig · %2$s Limit − %3$s genutzt · sperrt %4$s</string>
+    <string name="app_timer_exceeded_with_blocks">Limit erreicht (%1$s) · heute genutzt %2$s · sperrt %3$s</string>
+    <string name="app_timer_schedule_saved">Gesperrte Zeiten für %1$s: %2$s</string>
+    <string name="app_timer_saved_with_schedule">Timer für %1$s auf %2$s pro Tag gesetzt · sperrt %3$s</string>
+    <string name="app_timer_block_window_same_time">Start- und Endzeit müssen unterschiedlich sein</string>
+    <string name="app_timer_block_window_limit">Es sind höchstens 12 Zeiträume möglich</string>
     <string name="short_form_title">Kurzvideos</string>
     <string name="short_form_summary">Sperrt YouTube Shorts und Instagram Reels in den Apps und im Browser. Jederzeit änderbar — kein Passwort nötig.</string>
     <string name="block_youtube_shorts">YouTube Shorts sperren</string>
@@ -114,6 +126,8 @@
 
     <string name="app_timer_closed_title">Zeitlimit erreicht</string>
     <string name="app_timer_closed_reason">Das tägliche Zeitlimit für %1$s ist aufgebraucht. Ab morgen wieder verfügbar.</string>
+    <string name="app_timer_closed_schedule_title">App gesperrt</string>
+    <string name="app_timer_closed_schedule_reason">%1$s ist in diesem Zeitraum gesperrt (%2$s).</string>
 
     <string-array name="dns_lock_target_titles">
         <item>Weitere Verbindungseinstellungen</item>

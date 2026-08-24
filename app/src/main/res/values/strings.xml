@@ -83,8 +83,8 @@
     <string name="dns_browser_blocked_reason">Changing DNS in the browser is not allowed while protection is active.</string>
 
     <string name="app_timers_title">App timers</string>
-    <string name="app_timers_home_summary">Set a daily time limit for any app. No password required — change timers anytime.</string>
-    <string name="app_timers_summary">Pick an app and set a daily limit. Remaining time is always your limit minus today\'s screen time from the phone (same source as Digital Wellbeing). When the limit is reached, Blanket closes the app. Timers reset at midnight. No password needed.</string>
+    <string name="app_timers_home_summary">Set a daily time limit or block apps during certain hours. No password required — change anytime.</string>
+    <string name="app_timers_summary">Pick an app to set a daily limit and optional blocked times. Remaining time is always your limit minus today\'s screen time from the phone (same source as Digital Wellbeing). When the limit is reached or a blocked time starts, Blanket closes the app. Daily timers reset at midnight. No password needed.</string>
     <string name="app_timers_search_hint">Search apps</string>
     <string name="manage_app_timers">Manage app timers</string>
     <string name="open_usage_access_settings">Enable usage access</string>
@@ -96,7 +96,7 @@
     <string name="edit_app_timer">Edit</string>
     <string name="remove_app_timer">Remove limit</string>
     <string name="set_app_timer_for">Timer for %1$s</string>
-    <string name="set_app_timer_dialog_message">Daily limit (hours and minutes). Set both to 0 or tap Remove to clear.</string>
+    <string name="set_app_timer_dialog_message">Daily limit (hours and minutes). Set both to 0 to clear the daily limit only. Tap Remove to clear the limit and all blocked times.</string>
     <string name="app_timer_hours_label">h</string>
     <string name="app_timer_minutes_label">m</string>
     <string name="app_timer_no_limit">No limit · used today: %1$s</string>
@@ -104,6 +104,19 @@
     <string name="app_timer_exceeded">Limit reached (%1$s) · used today %2$s</string>
     <string name="app_timer_saved">Timer for %1$s set to %2$s per day</string>
     <string name="app_timer_removed">App timer removed</string>
+    <string name="app_timer_block_windows_title">Blocked times</string>
+    <string name="app_timer_block_windows_message">Completely block this app during these hours. Overnight ranges (for example 21:00–07:00) are allowed. You can add more than one.</string>
+    <string name="app_timer_add_block_window">Add time block</string>
+    <string name="app_timer_remove_block_window">Remove</string>
+    <string name="app_timer_block_window_range_separator" translatable="false">–</string>
+    <string name="app_timer_blocked_now">Blocked now (%1$s) · used today: %2$s</string>
+    <string name="app_timer_blocks_at">Blocks %1$s · used today: %2$s</string>
+    <string name="app_timer_remaining_with_blocks">%1$s left · %2$s limit − %3$s used · blocks %4$s</string>
+    <string name="app_timer_exceeded_with_blocks">Limit reached (%1$s) · used today %2$s · blocks %3$s</string>
+    <string name="app_timer_schedule_saved">Blocked times for %1$s: %2$s</string>
+    <string name="app_timer_saved_with_schedule">Timer for %1$s set to %2$s per day · blocks %3$s</string>
+    <string name="app_timer_block_window_same_time">Start and end time must be different</string>
+    <string name="app_timer_block_window_limit">You can add up to 12 time blocks</string>
     <string name="short_form_title">Short videos</string>
     <string name="short_form_summary">Blocks YouTube Shorts and Instagram Reels in the apps and in the browser. Change these anytime — no password required.</string>
     <string name="block_youtube_shorts">Block YouTube Shorts</string>
@@ -114,6 +127,8 @@
 
     <string name="app_timer_closed_title">Time limit reached</string>
     <string name="app_timer_closed_reason">%1$s\'s daily time limit is up. It will be available again tomorrow.</string>
+    <string name="app_timer_closed_schedule_title">App blocked</string>
+    <string name="app_timer_closed_schedule_reason">%1$s is blocked during this time (%2$s).</string>
 
     <string-array name="dns_lock_target_titles">
         <item>More connection settings</item>

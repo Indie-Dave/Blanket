@@ -2,16 +2,40 @@ package com.dnslock.family
 
 import android.content.Context
 import android.graphics.drawable.Drawable
+import android.text.format.DateFormat
+import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Calendar
 
 /**
- * Daily per-app usage limits (Digital Wellbeing–style). Timers can be set and
- * changed freely without a password.
+ * Daily per-app usage limits (Digital Wellbeing–style) and optional complete
+ * block windows. Timers and schedules can be set and changed freely without
+ * a password.
  */
 object AppTimersManager {
 
     private const val PREFS_NAME = "app_timers"
     private const val KEY_LIMITS_JSON = "limits_json"
+    private const val KEY_WINDOWS_JSON = "windows_json"
+    private const val MINUTES_PER_DAY = 24 * 60
+
+    data class BlockWindow(
+        /** Minutes from midnight, 0–1439. */
+        val startMinutes: Int,
+        /** Minutes from midnight, 0–1439. End is exclusive. Overnight wrap is allowed. */
+        val endMinutes: Int
+    ) {
+        fun contains(minutesOfDay: Int): Boolean {
+            val start = startMinutes.coerceIn(0, MINUTES_PER_DAY - 1)
+            val end = endMinutes.coerceIn(0, MINUTES_PER_DAY - 1)
+            if (start == end) return false
+            return if (start < end) {
+                minutesOfDay in start until end
+            } else {
+                minutesOfDay >= start || minutesOfDay < end
+            }
+        }
+    }
 
     data class AppTimerEntry(
         val packageName: String,
@@ -19,13 +43,20 @@ object AppTimersManager {
         val icon: Drawable?,
         /** Daily limit in minutes; 0 means no limit. */
         val limitMinutes: Int,
-        val usedTodayMs: Long
+        val usedTodayMs: Long,
+        val blockWindows: List<BlockWindow>
     ) {
         val remainingMs: Long
             get() = (limitMinutes * 60_000L - usedTodayMs).coerceAtLeast(0L)
 
         val isExceeded: Boolean
             get() = limitMinutes > 0 && usedTodayMs >= limitMinutes * 60_000L
+
+        val hasRestrictions: Boolean
+            get() = limitMinutes > 0 || blockWindows.isNotEmpty()
+
+        val isBlockedNow: Boolean
+            get() = blockWindows.any { it.contains(currentMinutesOfDay()) }
     }
 
     fun getLimitMinutes(context: Context, packageName: String): Int =
@@ -45,9 +76,38 @@ object AppTimersManager {
         setLimitMinutes(context, packageName, 0)
     }
 
-    fun getTimedPackages(context: Context): Set<String> = readLimits(context).keys.toSet()
+    fun getBlockWindows(context: Context, packageName: String): List<BlockWindow> =
+        readWindows(context)[packageName].orEmpty()
 
-    fun hasAnyTimer(context: Context): Boolean = readLimits(context).isNotEmpty()
+    fun hasBlockWindows(context: Context, packageName: String): Boolean =
+        getBlockWindows(context, packageName).isNotEmpty()
+
+    fun setBlockWindows(context: Context, packageName: String, windows: List<BlockWindow>) {
+        val map = readWindows(context)
+        val cleaned = windows.mapNotNull { window ->
+            val start = window.startMinutes.coerceIn(0, MINUTES_PER_DAY - 1)
+            val end = window.endMinutes.coerceIn(0, MINUTES_PER_DAY - 1)
+            if (start == end) null else BlockWindow(start, end)
+        }.distinct()
+        if (cleaned.isEmpty()) {
+            map.remove(packageName)
+        } else {
+            map[packageName] = cleaned
+        }
+        writeWindows(context, map)
+    }
+
+    fun isInBlockWindow(context: Context, packageName: String): Boolean {
+        val windows = getBlockWindows(context, packageName)
+        if (windows.isEmpty()) return false
+        val now = currentMinutesOfDay()
+        return windows.any { it.contains(now) }
+    }
+
+    fun getTimedPackages(context: Context): Set<String> =
+        readLimits(context).keys + readWindows(context).keys
+
+    fun hasAnyTimer(context: Context): Boolean = getTimedPackages(context).isNotEmpty()
 
     fun isLimitExceeded(context: Context, packageName: String): Boolean {
         return remainingMs(context, packageName, forceRefresh = true) <= 0L &&
@@ -114,16 +174,18 @@ object AppTimersManager {
         usageMap: Map<String, Long> = emptyMap()
     ): List<AppTimerEntry> {
         val limits = readLimits(context)
+        val windows = readWindows(context)
         return cachedApps.map { app ->
             AppTimerEntry(
                 packageName = app.packageName,
                 label = app.label,
                 icon = app.icon,
                 limitMinutes = limits[app.packageName] ?: 0,
-                usedTodayMs = usageMap[app.packageName] ?: 0L
+                usedTodayMs = usageMap[app.packageName] ?: 0L,
+                blockWindows = windows[app.packageName].orEmpty()
             )
         }.sortedWith(
-            compareByDescending<AppTimerEntry> { it.limitMinutes > 0 }
+            compareByDescending<AppTimerEntry> { it.hasRestrictions }
                 .thenBy { it.label.lowercase() }
         )
     }
@@ -166,6 +228,35 @@ object AppTimersManager {
 
     fun formatRemaining(remainingMs: Long): String = formatDurationMs(remainingMs)
 
+    fun formatClock(context: Context, minutesOfDay: Int): String {
+        val minutes = minutesOfDay.coerceIn(0, MINUTES_PER_DAY - 1)
+        val cal = Calendar.getInstance()
+        cal.set(Calendar.HOUR_OF_DAY, minutes / 60)
+        cal.set(Calendar.MINUTE, minutes % 60)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        return DateFormat.getTimeFormat(context).format(cal.time)
+    }
+
+    fun formatWindow(context: Context, window: BlockWindow): String =
+        "${formatClock(context, window.startMinutes)}–${formatClock(context, window.endMinutes)}"
+
+    fun formatWindows(context: Context, windows: List<BlockWindow>): String =
+        windows.joinToString(", ") { formatWindow(context, it) }
+
+    fun formatActiveBlockWindow(context: Context, packageName: String): String {
+        val windows = getBlockWindows(context, packageName)
+        if (windows.isEmpty()) return ""
+        val now = currentMinutesOfDay()
+        val active = windows.filter { it.contains(now) }
+        return formatWindows(context, active.ifEmpty { windows })
+    }
+
+    fun currentMinutesOfDay(): Int {
+        val cal = Calendar.getInstance()
+        return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    }
+
     private fun readLimits(context: Context): MutableMap<String, Int> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val raw = prefs.getString(KEY_LIMITS_JSON, null) ?: return mutableMapOf()
@@ -192,6 +283,56 @@ object AppTimersManager {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_LIMITS_JSON, json.toString())
+            .apply()
+    }
+
+    private fun readWindows(context: Context): MutableMap<String, List<BlockWindow>> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(KEY_WINDOWS_JSON, null) ?: return mutableMapOf()
+        return try {
+            val json = JSONObject(raw)
+            val map = mutableMapOf<String, List<BlockWindow>>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val pkg = keys.next()
+                val arr = json.optJSONArray(pkg) ?: continue
+                val list = mutableListOf<BlockWindow>()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val start = obj.optInt("s", -1)
+                    val end = obj.optInt("e", -1)
+                    if (start in 0 until MINUTES_PER_DAY &&
+                        end in 0 until MINUTES_PER_DAY &&
+                        start != end
+                    ) {
+                        list.add(BlockWindow(start, end))
+                    }
+                }
+                if (list.isNotEmpty()) map[pkg] = list
+            }
+            map
+        } catch (_: Exception) {
+            mutableMapOf()
+        }
+    }
+
+    private fun writeWindows(context: Context, windows: Map<String, List<BlockWindow>>) {
+        val json = JSONObject()
+        for ((pkg, list) in windows) {
+            if (list.isEmpty()) continue
+            val arr = JSONArray()
+            for (window in list) {
+                arr.put(
+                    JSONObject()
+                        .put("s", window.startMinutes)
+                        .put("e", window.endMinutes)
+                )
+            }
+            json.put(pkg, arr)
+        }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_WINDOWS_JSON, json.toString())
             .apply()
     }
 }

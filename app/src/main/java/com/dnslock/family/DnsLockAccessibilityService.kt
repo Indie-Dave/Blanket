@@ -184,19 +184,23 @@ class DnsLockAccessibilityService : AccessibilityService() {
             val monitored = monitoredTimerPackage
             if (monitored != null) {
                 cancelScheduledClearAppTimer()
-                startOrRefreshCountdown(monitored)
-                scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+                enforceAppTimerForPackage(monitored, fromRecheck = true)
             }
             return
         }
 
-        val limitMinutes = AppTimersManager.getLimitMinutes(this, pkg)
-        if (limitMinutes <= 0) {
+        enforceAppTimerForPackage(pkg, fromRecheck)
+    }
+
+    private fun enforceAppTimerForPackage(pkg: String, fromRecheck: Boolean) {
+        val hasLimit = AppTimersManager.getLimitMinutes(this, pkg) > 0
+        val hasWindows = AppTimersManager.hasBlockWindows(this, pkg)
+
+        if (!hasLimit && !hasWindows) {
             val monitored = monitoredTimerPackage
-            if (monitored != null && isTimedAppStillForeground(monitored)) {
+            if (monitored != null && monitored != pkg && isTimedAppStillForeground(monitored)) {
                 cancelScheduledClearAppTimer()
-                startOrRefreshCountdown(monitored)
-                scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+                enforceAppTimerForPackage(monitored, fromRecheck = true)
                 return
             }
             if (monitored != null) {
@@ -206,6 +210,30 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
 
         cancelScheduledClearAppTimer()
+
+        if (AppTimersManager.isInBlockWindow(this, pkg)) {
+            AppTimerCountdownOverlay.stop()
+            if (monitoredTimerPackage != pkg) {
+                monitoredTimerPackage = pkg
+                timerSessionStartedAt = 0L
+                timerSessionBaselineUsageMs = 0L
+            }
+            if (!maybeDismissScheduleBlockedApp(pkg)) {
+                scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+            }
+            return
+        }
+
+        if (!hasLimit) {
+            if (monitoredTimerPackage != pkg) {
+                AppTimerCountdownOverlay.stop()
+                monitoredTimerPackage = pkg
+                timerSessionStartedAt = 0L
+                timerSessionBaselineUsageMs = 0L
+            }
+            scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+            return
+        }
 
         if (!UsageStatsHelper.hasUsageAccess(this)) {
             beginTimerSessionIfNeeded(pkg, 0L)
@@ -355,6 +383,22 @@ class DnsLockAccessibilityService : AccessibilityService() {
             val appName = BlockedAppsManager.getAppDisplayName(this, pkg)
             ProtectionInfoPopup.showAppTimerExceeded(this, appName)
         }
+    }
+
+    /** @return true if the app was sent home. False means retry on the next tick. */
+    private fun maybeDismissScheduleBlockedApp(pkg: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (now < blockedSuppressUntil.getOrDefault(pkg, 0L)) return false
+
+        AppTimerCountdownOverlay.stop()
+        if (!performGlobalAction(GLOBAL_ACTION_HOME)) return false
+
+        blockedSuppressUntil[pkg] = now + BLOCKED_APP_SUPPRESS_MS
+        clearAppTimerMonitor()
+        val appName = BlockedAppsManager.getAppDisplayName(this, pkg)
+        val windowLabel = AppTimersManager.formatActiveBlockWindow(this, pkg)
+        ProtectionInfoPopup.showAppScheduleBlocked(this, appName, windowLabel)
+        return true
     }
 
     private fun resolveForegroundPackage(event: AccessibilityEvent?): String? {

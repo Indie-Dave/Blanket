@@ -81,6 +81,14 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showAppScheduleBlocked(context: Context, appName: String, windowLabel: String) {
+        show(
+            context = context,
+            title = context.getString(R.string.app_timer_closed_schedule_title),
+            message = context.getString(R.string.app_timer_closed_schedule_reason, appName, windowLabel)
+        )
+    }
+
     private fun show(context: Context, title: String, message: String) {
         val alertKey = "$title|$message"
         val now = System.currentTimeMillis()
