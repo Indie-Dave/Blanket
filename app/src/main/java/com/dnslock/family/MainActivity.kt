@@ -85,7 +85,7 @@ class MainActivity : AppCompatActivity() {
         instagramReelsSwitch = findViewById(R.id.instagramReelsSwitch)
 
         findViewById<Button>(R.id.openAccessibilityButton).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            onOpenAccessibilitySettingsClicked()
         }
 
         findViewById<Button>(R.id.openAppTimersButton).setOnClickListener {
@@ -173,6 +173,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         if (wasStopped) {
             setBlockListsExpanded(false)
+            PasswordManager.lockAccessibility(this)
             wasStopped = false
         }
         DeviceAuth.requireUnlock(this) {
@@ -184,6 +185,28 @@ class MainActivity : AppCompatActivity() {
             refreshPasswordAndDnsStatus()
             refreshShortFormSwitches()
         }
+    }
+
+    /**
+     * The service guards its own row in system Accessibility settings, so opening
+     * that screen while protection is running needs the password first.
+     */
+    private fun onOpenAccessibilitySettingsClicked() {
+        val guarded = PasswordManager.isPasswordSet(this) && AccessibilityHelper.isServiceEnabled(this)
+        if (!guarded) {
+            openAccessibilitySettings()
+            return
+        }
+
+        PasswordDialog.showVerify(this, getString(R.string.enter_password_title), onSuccess = {
+            openAccessibilitySettings()
+        })
+    }
+
+    private fun openAccessibilitySettings() {
+        // Grant a short window so the guard doesn't bounce the user straight back out.
+        PasswordManager.unlockAccessibility(this)
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     private fun onDnsScreenLockToggled(enable: Boolean) {

@@ -9,10 +9,12 @@ object PasswordManager {
     private const val KEY_PASSWORD_HASH = "pin_hash"
     private const val KEY_DNS_SCREEN_LOCK_ENABLED = "dns_screen_lock_enabled"
     private const val KEY_DNS_UNLOCK_UNTIL = "dns_unlock_until"
+    private const val KEY_ACCESSIBILITY_UNLOCK_UNTIL = "accessibility_unlock_until"
 
     private const val MIN_PASSWORD_LENGTH = 4
     private const val MAX_PASSWORD_LENGTH = 64
     private const val DEFAULT_UNLOCK_DURATION_MS = 10 * 60 * 1000L
+    private const val ACCESSIBILITY_UNLOCK_DURATION_MS = 10 * 60 * 1000L
 
     fun isPasswordSet(context: Context): Boolean =
         prefs(context).contains(KEY_PASSWORD_HASH)
@@ -46,31 +48,56 @@ object PasswordManager {
         }
     }
 
-    fun isDnsUnlocked(context: Context): Boolean {
-        val until = prefs(context).getLong(KEY_DNS_UNLOCK_UNTIL, 0L)
+    fun isDnsUnlocked(context: Context): Boolean =
+        isUnlocked(context, KEY_DNS_UNLOCK_UNTIL)
+
+    fun unlockDns(context: Context, durationMs: Long = DEFAULT_UNLOCK_DURATION_MS) {
+        unlock(context, KEY_DNS_UNLOCK_UNTIL, durationMs)
+    }
+
+    fun lockDns(context: Context) {
+        lock(context, KEY_DNS_UNLOCK_UNTIL)
+    }
+
+    fun getDnsUnlockUntil(context: Context): Long =
+        prefs(context).getLong(KEY_DNS_UNLOCK_UNTIL, 0L)
+
+    fun isAccessibilityUnlocked(context: Context): Boolean =
+        isUnlocked(context, KEY_ACCESSIBILITY_UNLOCK_UNTIL)
+
+    fun unlockAccessibility(
+        context: Context,
+        durationMs: Long = ACCESSIBILITY_UNLOCK_DURATION_MS
+    ) {
+        unlock(context, KEY_ACCESSIBILITY_UNLOCK_UNTIL, durationMs)
+    }
+
+    fun lockAccessibility(context: Context) {
+        lock(context, KEY_ACCESSIBILITY_UNLOCK_UNTIL)
+    }
+
+    private fun isUnlocked(context: Context, key: String): Boolean {
+        val until = prefs(context).getLong(key, 0L)
         if (until <= System.currentTimeMillis()) {
             if (until > 0L) {
-                prefs(context).edit().remove(KEY_DNS_UNLOCK_UNTIL).apply()
+                prefs(context).edit().remove(key).apply()
             }
             return false
         }
         return true
     }
 
-    fun unlockDns(context: Context, durationMs: Long = DEFAULT_UNLOCK_DURATION_MS) {
+    private fun unlock(context: Context, key: String, durationMs: Long) {
         prefs(context).edit()
-            .putLong(KEY_DNS_UNLOCK_UNTIL, System.currentTimeMillis() + durationMs)
+            .putLong(key, System.currentTimeMillis() + durationMs)
             .apply()
     }
 
-    fun lockDns(context: Context) {
+    private fun lock(context: Context, key: String) {
         prefs(context).edit()
-            .remove(KEY_DNS_UNLOCK_UNTIL)
+            .remove(key)
             .apply()
     }
-
-    fun getDnsUnlockUntil(context: Context): Long =
-        prefs(context).getLong(KEY_DNS_UNLOCK_UNTIL, 0L)
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

@@ -34,6 +34,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private var onBrowserDnsScreen = false
     private var lastDismissAt = 0L
     private var lastUninstallBlockAt = 0L
+    private var lastAccessibilityBlockAt = 0L
     private var lastBrowserDnsBlockAt = 0L
     private val blockedSuppressUntil = mutableMapOf<String, Long>()
 
@@ -93,6 +94,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 evaluateBlockedApp(event)
                 evaluateAppTimer(event)
+                maybeBlockAccessibilityDisable(event)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = true)
@@ -105,6 +107,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
                     lastAppTimerEvalAt = now
                     evaluateAppTimer(event)
                 }
+                maybeBlockAccessibilityDisable(event)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = false)
@@ -112,6 +115,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                maybeBlockAccessibilityDisable(event)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = false)
@@ -476,6 +480,50 @@ class DnsLockAccessibilityService : AccessibilityService() {
                 root.recycle()
             }
         }
+    }
+
+    private fun maybeBlockAccessibilityDisable(event: AccessibilityEvent) {
+        if (PasswordManager.isAccessibilityUnlocked(this)) return
+        if (!PasswordManager.isPasswordSet(this)) return
+
+        val pkg = resolveForegroundPackage(event) ?: return
+
+        rootInActiveWindow?.let { root ->
+            try {
+                if (blockAccessibilityScreenIfNeeded(pkg, root)) return
+            } finally {
+                root.recycle()
+            }
+        }
+
+        windows?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                val windowPkg = root.packageName?.toString() ?: pkg
+                if (blockAccessibilityScreenIfNeeded(windowPkg, root)) return
+            } finally {
+                root.recycle()
+            }
+        }
+    }
+
+    private fun blockAccessibilityScreenIfNeeded(
+        foregroundPackage: String,
+        root: AccessibilityNodeInfo
+    ): Boolean {
+        if (!AccessibilityGuard.isAccessibilityToggleScreen(this, foregroundPackage, root)) {
+            return false
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastAccessibilityBlockAt < ACCESSIBILITY_BLOCK_SUPPRESS_MS) return true
+
+        if (performGlobalAction(GLOBAL_ACTION_BACK) || performGlobalAction(GLOBAL_ACTION_HOME)) {
+            lastAccessibilityBlockAt = now
+            ProtectionInfoPopup.showAccessibilityDisableBlocked(this)
+        }
+        return true
     }
 
     private fun blockUninstallIfNeeded(foregroundPackage: String, root: AccessibilityNodeInfo): Boolean {
@@ -1123,6 +1171,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val REDIRECT_LOCK_MS = 2_500L
         private const val URL_BAR_FOCUS_DELAY_MS = 200L
         private const val UNINSTALL_SUPPRESS_MS = 4_000L
+        private const val ACCESSIBILITY_BLOCK_SUPPRESS_MS = 4_000L
         private const val RESET_DELAY_MS = 1200L
         private const val RECHECK_DELAY_MS = 200L
         private const val BROWSER_DNS_BLOCK_COOLDOWN_MS = 800L

@@ -44,6 +44,8 @@
     <string name="accessibility_status_enabled">Background protection: active (includes uninstall protection)</string>
     <string name="accessibility_status_disabled">Background protection: inactive — permission required</string>
     <string name="open_accessibility_settings">Enable accessibility</string>
+    <string name="accessibility_blocked_title">Accessibility settings blocked</string>
+    <string name="accessibility_blocked_reason">Turning off Blanket\'s accessibility service needs the password. Open Blanket and tap \"Enable accessibility\" to unlock it.</string>
     <string name="battery_status_enabled">Battery optimization: disabled</string>
     <string name="battery_status_disabled">Battery optimization: active — app may be stopped</string>
     <string name="disable_battery_optimization">Disable battery optimization</string>

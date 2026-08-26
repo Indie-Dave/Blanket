@@ -44,6 +44,8 @@
     <string name="accessibility_status_enabled">Hintergrundschutz: aktiv (inkl. Deinstallationsschutz)</string>
     <string name="accessibility_status_disabled">Hintergrundschutz: nicht aktiv — Berechtigung erforderlich</string>
     <string name="open_accessibility_settings">Barrierefreiheit aktivieren</string>
+    <string name="accessibility_blocked_title">Bedienungshilfen gesperrt</string>
+    <string name="accessibility_blocked_reason">Zum Ausschalten des Blanket-Bedienungshilfedienstes wird das Passwort benötigt. Öffne Blanket und tippe auf „Barrierefreiheit aktivieren“, um freizuschalten.</string>
     <string name="battery_status_enabled">Akku-Optimierung: deaktiviert</string>
     <string name="battery_status_disabled">Akku-Optimierung: aktiv — App kann beendet werden</string>
     <string name="disable_battery_optimization">Akku-Optimierung ausschalten</string>

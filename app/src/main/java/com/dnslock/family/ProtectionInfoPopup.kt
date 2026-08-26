@@ -51,6 +51,14 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showAccessibilityDisableBlocked(context: Context) {
+        show(
+            context = context,
+            title = context.getString(R.string.accessibility_blocked_title),
+            message = context.getString(R.string.accessibility_blocked_reason)
+        )
+    }
+
     fun showBlockedDnsSettings(context: Context) {
         show(
             context = context,
