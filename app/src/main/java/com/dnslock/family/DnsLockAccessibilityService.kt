@@ -32,6 +32,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
     private var onTargetScreen = false
     private var onBrowserDnsScreen = false
+    private var onAccessibilityScreen = false
     private var lastDismissAt = 0L
     private var lastUninstallBlockAt = 0L
     private var lastAccessibilityBlockAt = 0L
@@ -74,6 +75,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
     )
 
     private val recheckRunnable = Runnable { evaluateAndDismiss(fromRecheck = true) }
+    private val accessibilityRecheckRunnable = Runnable { evaluateAccessibilityAndDismiss(fromRecheck = true) }
     private val browserDnsRecheckRunnable = Runnable { blockBrowserDnsScreen(fromRecheck = true) }
     private val appTimerRecheckRunnable = Runnable { evaluateAppTimerLimit(fromRecheck = true) }
     private val clearAppTimerRunnable = Runnable { clearAppTimerMonitor() }
@@ -94,7 +96,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 evaluateBlockedApp(event)
                 evaluateAppTimer(event)
-                maybeBlockAccessibilityDisable(event)
+                evaluateAccessibilityAndDismiss(fromRecheck = false)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = true)
@@ -107,7 +109,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
                     lastAppTimerEvalAt = now
                     evaluateAppTimer(event)
                 }
-                maybeBlockAccessibilityDisable(event)
+                evaluateAccessibilityAndDismiss(fromRecheck = false)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = false)
@@ -115,7 +117,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
-                maybeBlockAccessibilityDisable(event)
+                evaluateAccessibilityAndDismiss(fromRecheck = false)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = false)
@@ -132,7 +134,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString()
         if (pkg != null && pkg !in settingsPackages) {
             onTargetScreen = false
+            onAccessibilityScreen = false
             handler.removeCallbacks(recheckRunnable)
+            handler.removeCallbacks(accessibilityRecheckRunnable)
             return
         }
 
@@ -482,15 +486,58 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun maybeBlockAccessibilityDisable(event: AccessibilityEvent) {
+    /**
+     * Leaves Blanket's accessibility-service screen with the same enter/back/recheck
+     * pattern as Private DNS. Skipped while the password unlock window is active.
+     */
+    private fun evaluateAccessibilityAndDismiss(fromRecheck: Boolean) {
         if (PasswordManager.isAccessibilityUnlocked(this)) return
         if (!PasswordManager.isPasswordSet(this)) return
 
-        val pkg = resolveForegroundPackage(event) ?: return
+        val foregroundPackage = resolveForegroundPackage(null)
+        if (foregroundPackage != null &&
+            foregroundPackage !in settingsPackages &&
+            !foregroundPackage.contains("settings", ignoreCase = true)
+        ) {
+            onAccessibilityScreen = false
+            handler.removeCallbacks(accessibilityRecheckRunnable)
+            return
+        }
 
+        val entered = isOnBlanketAccessibilityScreen()
+
+        if (!entered) {
+            onAccessibilityScreen = false
+            if (!fromRecheck) {
+                handler.removeCallbacks(accessibilityRecheckRunnable)
+                handler.postDelayed(accessibilityRecheckRunnable, RECHECK_DELAY_MS)
+            }
+            return
+        }
+
+        handler.removeCallbacks(accessibilityRecheckRunnable)
+
+        if (onAccessibilityScreen) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastAccessibilityBlockAt < DISMISS_COOLDOWN_MS) return
+
+        onAccessibilityScreen = true
+        if (performGlobalAction(GLOBAL_ACTION_BACK)) {
+            lastAccessibilityBlockAt = now
+            ProtectionInfoPopup.showAccessibilityDisableBlocked(this)
+            handler.postDelayed({ onAccessibilityScreen = false }, RESET_DELAY_MS)
+        } else {
+            onAccessibilityScreen = false
+            handler.postDelayed(accessibilityRecheckRunnable, RECHECK_DELAY_MS)
+        }
+    }
+
+    private fun isOnBlanketAccessibilityScreen(): Boolean {
         rootInActiveWindow?.let { root ->
             try {
-                if (blockAccessibilityScreenIfNeeded(pkg, root)) return
+                val pkg = root.packageName?.toString().orEmpty()
+                if (AccessibilityGuard.isAccessibilityToggleScreen(this, pkg, root)) return true
             } finally {
                 root.recycle()
             }
@@ -500,30 +547,13 @@ class DnsLockAccessibilityService : AccessibilityService() {
             if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
             val root = window.root ?: return@forEach
             try {
-                val windowPkg = root.packageName?.toString() ?: pkg
-                if (blockAccessibilityScreenIfNeeded(windowPkg, root)) return
+                val windowPkg = root.packageName?.toString().orEmpty()
+                if (AccessibilityGuard.isAccessibilityToggleScreen(this, windowPkg, root)) return true
             } finally {
                 root.recycle()
             }
         }
-    }
-
-    private fun blockAccessibilityScreenIfNeeded(
-        foregroundPackage: String,
-        root: AccessibilityNodeInfo
-    ): Boolean {
-        if (!AccessibilityGuard.isAccessibilityToggleScreen(this, foregroundPackage, root)) {
-            return false
-        }
-
-        val now = System.currentTimeMillis()
-        if (now - lastAccessibilityBlockAt < ACCESSIBILITY_BLOCK_SUPPRESS_MS) return true
-
-        if (performGlobalAction(GLOBAL_ACTION_BACK) || performGlobalAction(GLOBAL_ACTION_HOME)) {
-            lastAccessibilityBlockAt = now
-            ProtectionInfoPopup.showAccessibilityDisableBlocked(this)
-        }
-        return true
+        return false
     }
 
     private fun blockUninstallIfNeeded(foregroundPackage: String, root: AccessibilityNodeInfo): Boolean {
@@ -1136,11 +1166,13 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         handler.removeCallbacks(recheckRunnable)
+        handler.removeCallbacks(accessibilityRecheckRunnable)
         handler.removeCallbacks(browserDnsRecheckRunnable)
         handler.removeCallbacks(appTimerRecheckRunnable)
         handler.removeCallbacks(clearAppTimerRunnable)
         onTargetScreen = false
         onBrowserDnsScreen = false
+        onAccessibilityScreen = false
         redirectInProgress = false
         monitoredTimerPackage = null
         timerSessionStartedAt = 0L
@@ -1171,7 +1203,6 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val REDIRECT_LOCK_MS = 2_500L
         private const val URL_BAR_FOCUS_DELAY_MS = 200L
         private const val UNINSTALL_SUPPRESS_MS = 4_000L
-        private const val ACCESSIBILITY_BLOCK_SUPPRESS_MS = 4_000L
         private const val RESET_DELAY_MS = 1200L
         private const val RECHECK_DELAY_MS = 200L
         private const val BROWSER_DNS_BLOCK_COOLDOWN_MS = 800L

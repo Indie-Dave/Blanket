@@ -4,9 +4,9 @@ import android.content.Context
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
- * Detects system Settings screens where Blanket's accessibility service can be
- * switched off: the service detail page and the installed-services list that
- * carries a toggle for our app.
+ * Detects when the user has entered Blanket's own accessibility-service screen
+ * (the page with the background / "use service" switch), not parent Accessibility
+ * lists where the app name is merely visible.
  */
 object AccessibilityGuard {
 
@@ -21,19 +21,17 @@ object AccessibilityGuard {
         "collapse_title"
     )
 
-    /** Section headings under which a service toggle is offered (EN + DE). */
-    private val accessibilityMarkers = listOf(
+    /** Labels that appear on the service detail page (EN + DE). */
+    private val serviceScreenMarkers = listOf(
         "accessibility",
         "bedienungshilfen",
         "eingabehilfen",
-        "installed apps",
-        "installed services",
-        "downloaded apps",
-        "downloaded services",
-        "installierte apps",
-        "installierte dienste",
-        "heruntergeladene apps",
-        "heruntergeladene dienste"
+        "use service",
+        "dienst nutzen",
+        "dienst verwenden",
+        "shortcut",
+        "tastenkombination",
+        "verknüpfung"
     )
 
     /** How much of the service description must match to identify the detail page. */
@@ -54,15 +52,10 @@ object AccessibilityGuard {
         // The service detail page renders our own accessibility description.
         if (texts.any { showsServiceDescription(context, it) }) return true
 
-        if (texts.none { mentionsOurApp(context, it) }) return false
+        // Toolbar / heading is the app name, same "entered this screen" idea as DNS titles.
+        if (findServiceScreenTitle(context, root) == null) return false
 
-        val title = findToolbarTitle(root)
-        val onAccessibilityScreen = texts.any { hasAccessibilityMarker(it) } ||
-            (title != null && hasAccessibilityMarker(title))
-        if (!onAccessibilityScreen) return false
-
-        // A list that merely names Blanket is harmless; a toggle next to it is not.
-        return (title != null && mentionsOurApp(context, title)) || hasToggle(root)
+        return texts.any { hasServiceScreenMarker(it) } || hasToggle(root)
     }
 
     private fun isRelevantPackage(packageName: String): Boolean {
@@ -86,9 +79,9 @@ object AccessibilityGuard {
         return normalize(text).contains(probe)
     }
 
-    private fun hasAccessibilityMarker(text: String): Boolean {
+    private fun hasServiceScreenMarker(text: String): Boolean {
         val value = normalize(text)
-        return accessibilityMarkers.any { value.contains(it) }
+        return serviceScreenMarkers.any { value.contains(it) }
     }
 
     private fun normalize(text: String): String =
@@ -123,7 +116,11 @@ object AccessibilityGuard {
         }
     }
 
-    private fun findToolbarTitle(node: AccessibilityNodeInfo?, depth: Int = 0): String? {
+    private fun findServiceScreenTitle(
+        context: Context,
+        node: AccessibilityNodeInfo?,
+        depth: Int = 0
+    ): String? {
         if (node == null || depth > 12) return null
 
         val viewId = node.viewIdResourceName.orEmpty()
@@ -131,17 +128,31 @@ object AccessibilityGuard {
         val desc = node.contentDescription?.toString()?.trim().orEmpty()
 
         for (candidate in listOf(text, desc)) {
-            if (candidate.isEmpty()) continue
+            if (candidate.isEmpty() || !mentionsOurApp(context, candidate)) continue
+
             val looksLikeToolbar = toolbarTitleViewIdSuffixes.any { viewId.endsWith(it) }
-            if (looksLikeToolbar) return candidate
+            if (looksLikeToolbar || !isInsideClickableRow(node)) {
+                return candidate
+            }
         }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
-            val found = findToolbarTitle(child, depth + 1)
+            val found = findServiceScreenTitle(context, child, depth + 1)
             child?.recycle()
             if (found != null) return found
         }
         return null
+    }
+
+    private fun isInsideClickableRow(node: AccessibilityNodeInfo): Boolean {
+        var current: AccessibilityNodeInfo? = node
+        var depth = 0
+        while (current != null && depth < 6) {
+            if (current.isClickable) return true
+            current = current.parent
+            depth++
+        }
+        return false
     }
 }
