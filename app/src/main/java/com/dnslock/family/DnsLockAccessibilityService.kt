@@ -41,6 +41,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private var lastForceStopEvalAt = 0L
     private var lastAppInfoWindowClass: String? = null
     private val lastAppInfoExtraTexts = mutableListOf<String>()
+    private var lastA11yWindowClass: String? = null
+    private var lastA11yWindowTitle: String? = null
+    private val lastA11yExtraTexts = mutableListOf<String>()
     private var lastBrowserDnsBlockAt = 0L
     private val blockedSuppressUntil = mutableMapOf<String, Long>()
 
@@ -103,6 +106,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 rememberAppInfoEvent(event)
+                rememberAccessibilityEvent(event)
                 evaluateBlockedApp(event)
                 evaluateAppTimer(event)
                 evaluateAccessibilityAndDismiss(fromRecheck = false)
@@ -516,7 +520,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
             return
         }
 
-        val entered = isOnBlanketAccessibilityScreen()
+        val entered = isOnBlanketAccessibilityScreen(event = null)
 
         if (!entered) {
             onAccessibilityScreen = false
@@ -535,7 +539,17 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (now - lastAccessibilityBlockAt < DISMISS_COOLDOWN_MS) return
 
         onAccessibilityScreen = true
-        if (performGlobalAction(GLOBAL_ACTION_BACK)) {
+        val left = performGlobalAction(GLOBAL_ACTION_BACK)
+        if (left) {
+            lastAccessibilityBlockAt = now
+            ProtectionInfoPopup.showAccessibilityDisableBlocked(this)
+            handler.postDelayed({
+                if (isOnBlanketAccessibilityScreen(event = null)) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+                onAccessibilityScreen = false
+            }, 400L)
+        } else if (performGlobalAction(GLOBAL_ACTION_HOME)) {
             lastAccessibilityBlockAt = now
             ProtectionInfoPopup.showAccessibilityDisableBlocked(this)
             handler.postDelayed({ onAccessibilityScreen = false }, RESET_DELAY_MS)
@@ -545,13 +559,57 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun isOnBlanketAccessibilityScreen(): Boolean {
+    private fun rememberAccessibilityEvent(event: AccessibilityEvent) {
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = event.packageName?.toString()
+        if (pkg != null &&
+            pkg !in settingsPackages &&
+            !pkg.contains("settings", ignoreCase = true)
+        ) {
+            lastA11yWindowClass = null
+            lastA11yWindowTitle = null
+            lastA11yExtraTexts.clear()
+            return
+        }
+
+        val cls = event.className?.toString().orEmpty()
+        if (AccessibilityGuard.looksLikeServiceActivity(cls)) {
+            lastA11yWindowClass = cls
+        } else if (cls.isNotEmpty() &&
+            !cls.startsWith("android.widget") &&
+            !cls.startsWith("android.view") &&
+            !cls.startsWith("androidx.")
+        ) {
+            lastA11yWindowClass = null
+        }
+
+        lastA11yExtraTexts.clear()
+        event.text?.forEach { chunk ->
+            chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                lastA11yExtraTexts.add(it)
+            }
+        }
+        event.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            lastA11yExtraTexts.add(it)
+        }
+        lastA11yWindowTitle = lastA11yExtraTexts.firstOrNull()
+    }
+
+    private fun isOnBlanketAccessibilityScreen(event: AccessibilityEvent?): Boolean {
+        val extras = ArrayList<String>(lastA11yExtraTexts)
+        event?.text?.forEach { chunk ->
+            chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { extras.add(it) }
+        }
+        val className = lastA11yWindowClass ?: event?.className?.toString()
+        val screenTitle = lastA11yWindowTitle
+
         rootInActiveWindow?.let { root ->
-            try {
-                val pkg = root.packageName?.toString().orEmpty()
-                if (AccessibilityGuard.isAccessibilityToggleScreen(this, pkg, root)) return true
-            } finally {
-                root.recycle()
+            val pkg = root.packageName?.toString().orEmpty()
+            if (AccessibilityGuard.isAccessibilityToggleScreen(
+                    this, pkg, root, extras, className, screenTitle
+                )
+            ) {
+                return true
             }
         }
 
@@ -560,7 +618,12 @@ class DnsLockAccessibilityService : AccessibilityService() {
             val root = window.root ?: return@forEach
             try {
                 val windowPkg = root.packageName?.toString().orEmpty()
-                if (AccessibilityGuard.isAccessibilityToggleScreen(this, windowPkg, root)) return true
+                if (AccessibilityGuard.isAccessibilityToggleScreen(
+                        this, windowPkg, root, extras, className, screenTitle
+                    )
+                ) {
+                    return true
+                }
             } finally {
                 root.recycle()
             }
@@ -1318,6 +1381,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
         onForceStopScreen = false
         lastAppInfoWindowClass = null
         lastAppInfoExtraTexts.clear()
+        lastA11yWindowClass = null
+        lastA11yWindowTitle = null
+        lastA11yExtraTexts.clear()
         redirectInProgress = false
         monitoredTimerPackage = null
         timerSessionStartedAt = 0L

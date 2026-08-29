@@ -4,9 +4,9 @@ import android.content.Context
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
- * Detects when the user has entered Blanket's own accessibility-service screen
- * (the page with the background / "use service" switch), not parent Accessibility
- * lists where the app name is merely visible.
+ * Detects Blanket's accessibility-service screen, including
+ * Accessibility → Installed apps → Blanket (Eingabehilfe → Installierte Apps → Blanket).
+ * The Installed apps list is not blocked just because Blanket appears as a row.
  */
 object AccessibilityGuard {
 
@@ -15,47 +15,68 @@ object AccessibilityGuard {
         "com.samsung.android.settings"
     )
 
-    private val toolbarTitleViewIdSuffixes = listOf(
-        "action_bar_title",
-        "toolbar_title",
-        "collapse_title"
+    private val serviceActivityMarkers = listOf(
+        "toggleaccessibilityservice",
+        "accessibilityservicepreference",
+        "volumeshortcuttoggle"
     )
 
-    /** Labels that appear on the service detail page (EN + DE). */
-    private val serviceScreenMarkers = listOf(
-        "accessibility",
-        "bedienungshilfen",
-        "eingabehilfen",
-        "use service",
-        "dienst nutzen",
-        "dienst verwenden",
-        "shortcut",
-        "tastenkombination",
-        "verknüpfung"
+    private val installedAppsListTitles = listOf(
+        "installed apps",
+        "installierte apps",
+        "downloaded apps",
+        "heruntergeladene apps",
+        "installed services",
+        "installierte dienste"
     )
 
-    /** How much of the service description must match to identify the detail page. */
-    private const val DESCRIPTION_PROBE_LENGTH = 40
+    private val useServiceQueries = listOf(
+        "Use service",
+        "Use Service",
+        "Dienst nutzen",
+        "Dienst verwenden"
+    )
 
     fun isAccessibilityToggleScreen(
         context: Context,
         foregroundPackage: String,
-        root: AccessibilityNodeInfo?
+        root: AccessibilityNodeInfo?,
+        extraTexts: Collection<String> = emptyList(),
+        windowClassName: String? = null,
+        screenTitle: String? = null
     ): Boolean {
         if (root == null) return false
-        if (!isRelevantPackage(foregroundPackage)) return false
+        if (foregroundPackage.isNotEmpty() && !isRelevantPackage(foregroundPackage)) return false
 
-        val texts = mutableListOf<String>()
-        collectTexts(root, texts = texts)
-        if (texts.isEmpty()) return false
+        val toolbarTitle = findToolbarTitle(root)?.let { normalize(it) }.orEmpty()
+        val title = toolbarTitle.ifEmpty {
+            normalize(screenTitle ?: extraTexts.firstOrNull().orEmpty())
+        }
+        if (isInstalledAppsListTitle(title)) return false
 
-        // The service detail page renders our own accessibility description.
-        if (texts.any { showsServiceDescription(context, it) }) return true
+        val appName = normalize(context.getString(R.string.app_name))
+        // Opened the Blanket option — same "screen entered" idea as DNS / App info.
+        if (appName.isNotEmpty() && (title == appName || title.startsWith("$appName "))) {
+            return true
+        }
 
-        // Toolbar / heading is the app name, same "entered this screen" idea as DNS titles.
-        if (findServiceScreenTitle(context, root) == null) return false
+        if (showsServiceDescription(context, root, extraTexts)) return true
 
-        return texts.any { hasServiceScreenMarker(it) } || hasToggle(root)
+        val mentionsApp = mentionsOurAppInTree(context, root, extraTexts)
+        if (!mentionsApp) return false
+
+        if (looksLikeServiceActivity(windowClassName)) return true
+        if (hasUseServiceControl(root, extraTexts)) return true
+
+        return false
+    }
+
+    fun looksLikeServiceActivity(className: String?): Boolean {
+        if (className.isNullOrEmpty()) return false
+        val value = className.lowercase()
+        if (value.startsWith("android.widget")) return false
+        if (value.startsWith("android.view")) return false
+        return serviceActivityMarkers.any { value.contains(it) }
     }
 
     private fun isRelevantPackage(packageName: String): Boolean {
@@ -63,48 +84,114 @@ object AccessibilityGuard {
         return packageName.contains("settings", ignoreCase = true)
     }
 
-    private fun mentionsOurApp(context: Context, text: String): Boolean {
-        val value = text.trim()
-        if (value.isEmpty()) return false
+    private fun findToolbarTitle(node: AccessibilityNodeInfo?, depth: Int = 0): String? {
+        if (node == null || depth > 14) return null
 
-        val appName = context.getString(R.string.app_name)
-        if (value.contains(appName, ignoreCase = true)) return true
-        return value.contains(context.packageName, ignoreCase = true)
-    }
+        val viewId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString()?.trim().orEmpty()
+        val desc = node.contentDescription?.toString()?.trim().orEmpty()
+        val looksLikeToolbar = toolbarTitleViewIdSuffixes.any { viewId.endsWith(it) }
 
-    private fun showsServiceDescription(context: Context, text: String): Boolean {
-        val probe = normalize(context.getString(R.string.accessibility_service_description))
-            .take(DESCRIPTION_PROBE_LENGTH)
-        if (probe.length < DESCRIPTION_PROBE_LENGTH) return false
-        return normalize(text).contains(probe)
-    }
-
-    private fun hasServiceScreenMarker(text: String): Boolean {
-        val value = normalize(text)
-        return serviceScreenMarkers.any { value.contains(it) }
-    }
-
-    private fun normalize(text: String): String =
-        text.trim().replace(Regex("\\s+"), " ").lowercase()
-
-    private fun hasToggle(node: AccessibilityNodeInfo?, depth: Int = 0): Boolean {
-        if (node == null || depth > 16) return false
-
-        if (node.isCheckable) return true
-        val className = node.className?.toString().orEmpty()
-        if (className.endsWith("Switch") || className.endsWith("CompoundButton")) return true
+        for (candidate in listOf(text, desc)) {
+            if (candidate.isEmpty()) continue
+            if (looksLikeToolbar) return candidate
+        }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
-            val found = hasToggle(child, depth + 1)
+            val found = findToolbarTitle(child, depth + 1)
             child?.recycle()
-            if (found) return true
+            if (found != null) return found
         }
-        return false
+        return null
     }
 
-    private fun collectTexts(node: AccessibilityNodeInfo?, depth: Int = 0, texts: MutableList<String>) {
-        if (node == null || depth > 16) return
+    private val toolbarTitleViewIdSuffixes = listOf(
+        "action_bar_title",
+        "toolbar_title",
+        "collapse_title",
+        "collapsing_toolbar",
+        "sesl_action_bar_title",
+        "extended_title",
+        "entity_header_title"
+    )
+
+    private fun isInstalledAppsListTitle(normalizedTitle: String): Boolean {
+        if (normalizedTitle.isEmpty()) return false
+        return installedAppsListTitles.any {
+            normalizedTitle == it || normalizedTitle.startsWith(it)
+        }
+    }
+
+    private fun mentionsOurAppInTree(
+        context: Context,
+        root: AccessibilityNodeInfo,
+        extraTexts: Collection<String>
+    ): Boolean {
+        val appName = context.getString(R.string.app_name)
+        val packageName = context.packageName
+        if (extraTexts.any { mentionsOurApp(appName, packageName, it) }) return true
+        if (hasNodeWithText(root, appName)) return true
+        if (hasNodeWithText(root, packageName)) return true
+        return collectTexts(root).any { mentionsOurApp(appName, packageName, it) }
+    }
+
+    private fun mentionsOurApp(appName: String, packageName: String, text: String): Boolean {
+        val value = text.trim()
+        if (value.isEmpty()) return false
+        if (value.equals(appName, ignoreCase = true)) return true
+        if (value.contains(appName, ignoreCase = true)) return true
+        return value.contains(packageName, ignoreCase = true)
+    }
+
+    private fun showsServiceDescription(
+        context: Context,
+        root: AccessibilityNodeInfo,
+        extraTexts: Collection<String>
+    ): Boolean {
+        val description = context.getString(R.string.accessibility_service_description).trim()
+        val probe = description.take(28)
+        if (probe.length < 16) return false
+        if (extraTexts.any { normalize(it).contains(normalize(probe)) }) return true
+        if (hasNodeWithText(root, probe)) return true
+        return collectTexts(root).any { normalize(it).contains(normalize(probe)) }
+    }
+
+    private fun hasUseServiceControl(
+        root: AccessibilityNodeInfo,
+        extraTexts: Collection<String>
+    ): Boolean {
+        if (extraTexts.any { isUseServiceLabel(it) }) return true
+        for (query in useServiceQueries) {
+            if (hasNodeWithText(root, query)) return true
+        }
+        return collectTexts(root).any { isUseServiceLabel(it) }
+    }
+
+    private fun isUseServiceLabel(text: String): Boolean {
+        val value = normalize(text)
+        if (value.length > 48) return false
+        return useServiceQueries.any {
+            val q = normalize(it)
+            value == q || value.contains(q)
+        }
+    }
+
+    private fun hasNodeWithText(root: AccessibilityNodeInfo, query: String): Boolean {
+        val nodes = root.findAccessibilityNodeInfosByText(query) ?: return false
+        val found = nodes.isNotEmpty()
+        for (node in nodes) node.recycle()
+        return found
+    }
+
+    private fun collectTexts(node: AccessibilityNodeInfo?, depth: Int = 0): List<String> {
+        val texts = mutableListOf<String>()
+        collectTexts(node, depth, texts)
+        return texts
+    }
+
+    private fun collectTexts(node: AccessibilityNodeInfo?, depth: Int, texts: MutableList<String>) {
+        if (node == null || depth > 32) return
 
         node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { texts.add(it) }
         node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { texts.add(it) }
@@ -116,43 +203,6 @@ object AccessibilityGuard {
         }
     }
 
-    private fun findServiceScreenTitle(
-        context: Context,
-        node: AccessibilityNodeInfo?,
-        depth: Int = 0
-    ): String? {
-        if (node == null || depth > 12) return null
-
-        val viewId = node.viewIdResourceName.orEmpty()
-        val text = node.text?.toString()?.trim().orEmpty()
-        val desc = node.contentDescription?.toString()?.trim().orEmpty()
-
-        for (candidate in listOf(text, desc)) {
-            if (candidate.isEmpty() || !mentionsOurApp(context, candidate)) continue
-
-            val looksLikeToolbar = toolbarTitleViewIdSuffixes.any { viewId.endsWith(it) }
-            if (looksLikeToolbar || !isInsideClickableRow(node)) {
-                return candidate
-            }
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            val found = findServiceScreenTitle(context, child, depth + 1)
-            child?.recycle()
-            if (found != null) return found
-        }
-        return null
-    }
-
-    private fun isInsideClickableRow(node: AccessibilityNodeInfo): Boolean {
-        var current: AccessibilityNodeInfo? = node
-        var depth = 0
-        while (current != null && depth < 6) {
-            if (current.isClickable) return true
-            current = current.parent
-            depth++
-        }
-        return false
-    }
+    private fun normalize(text: String): String =
+        text.trim().replace("-", " ").replace(Regex("\\s+"), " ").lowercase()
 }
