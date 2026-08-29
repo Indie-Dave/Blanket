@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS status indicator</string>
     <string name="is_dns_set">Is DNS set?</string>
     <string name="accessibility_service_description">
-        Automatically minimizes the Settings app on network DNS screens, forces browsers to use system DNS, closes blocked apps and websites, enforces app timers, blocks keywords in the browser, can block YouTube Shorts and Instagram Reels, and prevents uninstalling Blanket.
+        Automatically minimizes the Settings app on network DNS screens, forces browsers to use system DNS, closes blocked apps and websites, enforces app timers, blocks keywords in the browser, can block YouTube Shorts and Instagram Reels, and prevents uninstalling or force stopping Blanket.
     </string>
     <string name="block_lists_title">Block lists</string>
     <string name="block_lists_expand">Show block lists</string>
@@ -21,6 +21,8 @@
     <string name="app_closed_title">App closed</string>
     <string name="app_closed_blocked_reason">%1$s was closed because it matched your blocklist keyword \"%2$s\".</string>
     <string name="app_closed_uninstall_reason">Uninstalling Blanket is not allowed while protection is active.</string>
+    <string name="force_stop_blocked_title">App info blocked</string>
+    <string name="force_stop_blocked_reason">Blanket\'s app info screen is not allowed while protection is active.</string>
     <string name="blocked_sites_title">Blocked websites</string>
     <string name="blocked_sites_summary">Works in Chrome, Samsung Internet, Firefox and Brave. Blocks the domain and its subdomains.</string>
     <string name="blocked_sites_hint">Enter website (e.g. youtube.com)</string>

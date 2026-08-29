@@ -10,17 +10,13 @@ object UninstallGuard {
         "com.samsung.android.settings"
     )
 
-    private val toolbarTitleViewIdSuffixes = listOf(
-        "action_bar_title",
-        "toolbar_title",
-        "collapse_title"
-    )
-
-    private val uninstallKeywords = listOf(
-        "deinstallieren",
-        "deinstallation",
-        "uninstall",
-        "uninstalling"
+    private val uninstallConfirmKeywords = listOf(
+        "do you want to uninstall",
+        "uninstall this app",
+        "uninstall app",
+        "diese app deinstallieren",
+        "app deinstallieren",
+        "want to uninstall"
     )
 
     fun isUninstallAttempt(context: Context, foregroundPackage: String, root: AccessibilityNodeInfo?): Boolean {
@@ -33,14 +29,12 @@ object UninstallGuard {
         val mentionsApp = texts.any { mentionsOurApp(context, it) }
         if (!mentionsApp) return false
 
-        findToolbarTitle(root)?.let { title ->
-            if (mentionsOurApp(context, title)) return true
+        val isInstaller = foregroundPackage.contains("packageinstaller", ignoreCase = true)
+        val hasConfirm = texts.any { text ->
+            val value = text.lowercase()
+            uninstallConfirmKeywords.any { keyword -> value.contains(keyword) }
         }
-
-        val hasUninstallAction = texts.any { text ->
-            uninstallKeywords.any { keyword -> text.contains(keyword, ignoreCase = true) }
-        }
-        if (hasUninstallAction) return true
+        if (isInstaller || hasConfirm) return true
 
         return false
     }
@@ -74,27 +68,5 @@ object UninstallGuard {
             collectTexts(child, depth + 1, texts)
             child?.recycle()
         }
-    }
-
-    private fun findToolbarTitle(node: AccessibilityNodeInfo?, depth: Int = 0): String? {
-        if (node == null || depth > 12) return null
-
-        val viewId = node.viewIdResourceName.orEmpty()
-        val text = node.text?.toString()?.trim().orEmpty()
-        val desc = node.contentDescription?.toString()?.trim().orEmpty()
-
-        for (candidate in listOf(text, desc)) {
-            if (candidate.isEmpty()) continue
-            val looksLikeToolbar = toolbarTitleViewIdSuffixes.any { viewId.endsWith(it) }
-            if (looksLikeToolbar) return candidate
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            val found = findToolbarTitle(child, depth + 1)
-            child?.recycle()
-            if (found != null) return found
-        }
-        return null
     }
 }

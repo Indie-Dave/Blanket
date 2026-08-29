@@ -51,6 +51,14 @@ object ProtectionInfoPopup {
         )
     }
 
+    fun showForceStopBlocked(context: Context) {
+        show(
+            context = context,
+            title = context.getString(R.string.force_stop_blocked_title),
+            message = context.getString(R.string.force_stop_blocked_reason)
+        )
+    }
+
     fun showAccessibilityDisableBlocked(context: Context) {
         show(
             context = context,

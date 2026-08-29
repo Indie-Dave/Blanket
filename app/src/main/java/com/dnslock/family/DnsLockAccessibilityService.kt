@@ -33,9 +33,14 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private var onTargetScreen = false
     private var onBrowserDnsScreen = false
     private var onAccessibilityScreen = false
+    private var onForceStopScreen = false
     private var lastDismissAt = 0L
     private var lastUninstallBlockAt = 0L
     private var lastAccessibilityBlockAt = 0L
+    private var lastForceStopBlockAt = 0L
+    private var lastForceStopEvalAt = 0L
+    private var lastAppInfoWindowClass: String? = null
+    private val lastAppInfoExtraTexts = mutableListOf<String>()
     private var lastBrowserDnsBlockAt = 0L
     private val blockedSuppressUntil = mutableMapOf<String, Long>()
 
@@ -76,6 +81,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     private val recheckRunnable = Runnable { evaluateAndDismiss(fromRecheck = true) }
     private val accessibilityRecheckRunnable = Runnable { evaluateAccessibilityAndDismiss(fromRecheck = true) }
+    private val forceStopRecheckRunnable = Runnable {
+        evaluateForceStopAndDismiss(event = null, fromRecheck = true, force = true)
+    }
     private val browserDnsRecheckRunnable = Runnable { blockBrowserDnsScreen(fromRecheck = true) }
     private val appTimerRecheckRunnable = Runnable { evaluateAppTimerLimit(fromRecheck = true) }
     private val clearAppTimerRunnable = Runnable { clearAppTimerMonitor() }
@@ -94,9 +102,11 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                rememberAppInfoEvent(event)
                 evaluateBlockedApp(event)
                 evaluateAppTimer(event)
                 evaluateAccessibilityAndDismiss(fromRecheck = false)
+                evaluateForceStopAndDismiss(event, fromRecheck = false, force = true)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = true)
@@ -110,6 +120,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
                     evaluateAppTimer(event)
                 }
                 evaluateAccessibilityAndDismiss(fromRecheck = false)
+                evaluateForceStopAndDismiss(event, fromRecheck = false, force = false)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = false)
@@ -118,6 +129,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
                 evaluateAccessibilityAndDismiss(fromRecheck = false)
+                evaluateForceStopAndDismiss(event, fromRecheck = false, force = false)
                 maybeBlockUninstall(event)
                 evaluateBlockedSite(event)
                 evaluateShortForm(event, force = false)
@@ -549,6 +561,135 @@ class DnsLockAccessibilityService : AccessibilityService() {
             try {
                 val windowPkg = root.packageName?.toString().orEmpty()
                 if (AccessibilityGuard.isAccessibilityToggleScreen(this, windowPkg, root)) return true
+            } finally {
+                root.recycle()
+            }
+        }
+        return false
+    }
+
+    /**
+     * Leaves Blanket's App info screen with Back, then Home if the page is still there.
+     */
+    private fun evaluateForceStopAndDismiss(
+        event: AccessibilityEvent?,
+        fromRecheck: Boolean,
+        force: Boolean = true
+    ) {
+        event?.let { rememberAppInfoEvent(it) }
+
+        val nowEval = System.currentTimeMillis()
+        if (!force && !fromRecheck && nowEval - lastForceStopEvalAt < FORCE_STOP_EVAL_THROTTLE_MS) {
+            return
+        }
+        lastForceStopEvalAt = nowEval
+
+        val entered = isOnBlanketAppInfoScreen(event)
+
+        if (!entered) {
+            onForceStopScreen = false
+            val pkg = resolveForegroundPackage(event)
+            if (pkg != null && !ForceStopGuard.isRelevantPackage(pkg)) {
+                handler.removeCallbacks(forceStopRecheckRunnable)
+                lastAppInfoWindowClass = null
+                return
+            }
+            if (!fromRecheck) {
+                handler.removeCallbacks(forceStopRecheckRunnable)
+                handler.postDelayed(forceStopRecheckRunnable, RECHECK_DELAY_MS)
+            }
+            return
+        }
+
+        handler.removeCallbacks(forceStopRecheckRunnable)
+
+        if (onForceStopScreen) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastForceStopBlockAt < DISMISS_COOLDOWN_MS) return
+
+        onForceStopScreen = true
+        val left = performGlobalAction(GLOBAL_ACTION_BACK)
+        if (left) {
+            lastForceStopBlockAt = now
+            ProtectionInfoPopup.showForceStopBlocked(this)
+            handler.postDelayed({
+                if (isOnBlanketAppInfoScreen(null)) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+                onForceStopScreen = false
+            }, 400L)
+        } else if (performGlobalAction(GLOBAL_ACTION_HOME)) {
+            lastForceStopBlockAt = now
+            ProtectionInfoPopup.showForceStopBlocked(this)
+            handler.postDelayed({ onForceStopScreen = false }, RESET_DELAY_MS)
+        } else {
+            onForceStopScreen = false
+            handler.postDelayed(forceStopRecheckRunnable, RECHECK_DELAY_MS)
+        }
+    }
+
+    private fun rememberAppInfoEvent(event: AccessibilityEvent) {
+        val cls = event.className?.toString().orEmpty()
+        if (ForceStopGuard.looksLikeAppInfoActivity(cls)) {
+            lastAppInfoWindowClass = cls
+        } else if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            cls.isNotEmpty() &&
+            !cls.startsWith("android.widget") &&
+            !cls.startsWith("android.view") &&
+            !cls.startsWith("androidx.")
+        ) {
+            val pkg = event.packageName?.toString()
+            if (pkg == null || ForceStopGuard.isRelevantPackage(pkg)) {
+                lastAppInfoWindowClass = null
+            }
+        }
+
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            lastAppInfoExtraTexts.clear()
+            event.text?.forEach { chunk ->
+                chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    lastAppInfoExtraTexts.add(it)
+                }
+            }
+            event.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                lastAppInfoExtraTexts.add(it)
+            }
+        }
+    }
+
+    private fun extraAppInfoTexts(event: AccessibilityEvent?): List<String> {
+        val extras = ArrayList<String>(lastAppInfoExtraTexts)
+        event?.text?.forEach { chunk ->
+            chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { extras.add(it) }
+        }
+        event?.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            extras.add(it)
+        }
+        return extras
+    }
+
+    private fun isOnBlanketAppInfoScreen(event: AccessibilityEvent?): Boolean {
+        val extras = extraAppInfoTexts(event)
+        val className = lastAppInfoWindowClass
+            ?: event?.className?.toString()
+
+        rootInActiveWindow?.let { root ->
+            val pkg = root.packageName?.toString().orEmpty()
+            if (ForceStopGuard.isBlockedAppInfoScreen(this, pkg, root, extras, className)) {
+                return true
+            }
+        }
+
+        windows?.forEach { window ->
+            if (window.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) return@forEach
+            if (window.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) return@forEach
+            val root = window.root ?: return@forEach
+            try {
+                val windowPkg = root.packageName?.toString().orEmpty()
+                if (ForceStopGuard.isBlockedAppInfoScreen(this, windowPkg, root, extras, className)) {
+                    return true
+                }
             } finally {
                 root.recycle()
             }
@@ -1167,12 +1308,16 @@ class DnsLockAccessibilityService : AccessibilityService() {
     override fun onInterrupt() {
         handler.removeCallbacks(recheckRunnable)
         handler.removeCallbacks(accessibilityRecheckRunnable)
+        handler.removeCallbacks(forceStopRecheckRunnable)
         handler.removeCallbacks(browserDnsRecheckRunnable)
         handler.removeCallbacks(appTimerRecheckRunnable)
         handler.removeCallbacks(clearAppTimerRunnable)
         onTargetScreen = false
         onBrowserDnsScreen = false
         onAccessibilityScreen = false
+        onForceStopScreen = false
+        lastAppInfoWindowClass = null
+        lastAppInfoExtraTexts.clear()
         redirectInProgress = false
         monitoredTimerPackage = null
         timerSessionStartedAt = 0L
@@ -1210,6 +1355,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val USAGE_STATS_REFRESH_MS = 15_000L
         private const val APP_TIMER_EVENT_THROTTLE_MS = 400L
         private const val APP_TIMER_CLEAR_DEBOUNCE_MS = 800L
+        private const val FORCE_STOP_EVAL_THROTTLE_MS = 300L
         private const val SHORT_FORM_EVAL_THROTTLE_MS = 350L
         private const val SHORT_FORM_SUPPRESS_MS = 2_500L
         private const val YOUTUBE_HOME_URL = "https://www.youtube.com"

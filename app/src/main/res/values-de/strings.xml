@@ -3,7 +3,7 @@
     <string name="dns_status_indicator">DNS-Statusanzeige</string>
     <string name="is_dns_set">Ist DNS gesetzt?</string>
     <string name="accessibility_service_description">
-        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch, erzwingt System-DNS in Browsern, schließt gesperrte Apps und Webseiten, setzt App-Timer durch, sperrt Stichwörter im Browser, kann YouTube Shorts und Instagram Reels sperren und verhindert die Deinstallation von Blanket.
+        Minimiert die Einstellungen-App bei Netzwerk-DNS-Einstellungen automatisch, erzwingt System-DNS in Browsern, schließt gesperrte Apps und Webseiten, setzt App-Timer durch, sperrt Stichwörter im Browser, kann YouTube Shorts und Instagram Reels sperren und verhindert die Deinstallation und das zwangsweise Beenden von Blanket.
     </string>
     <string name="block_lists_title">Sperrlisten</string>
     <string name="block_lists_expand">Sperrlisten anzeigen</string>
@@ -21,6 +21,8 @@
     <string name="app_closed_title">App geschlossen</string>
     <string name="app_closed_blocked_reason">%1$s wurde geschlossen, weil es dem Sperrlisten-Begriff „%2$s“ entspricht.</string>
     <string name="app_closed_uninstall_reason">Blanket kann nicht deinstalliert werden, solange der Schutz aktiv ist.</string>
+    <string name="force_stop_blocked_title">App-Info gesperrt</string>
+    <string name="force_stop_blocked_reason">Die App-Info von Blanket ist nicht erlaubt, solange der Schutz aktiv ist.</string>
     <string name="blocked_sites_title">Gesperrte Webseiten</string>
     <string name="blocked_sites_summary">Funktioniert in Chrome, Samsung Internet, Firefox und Brave. Sperrt die Domain und ihre Subdomains.</string>
     <string name="blocked_sites_hint">Webseite eingeben (z. B. youtube.com)</string>
