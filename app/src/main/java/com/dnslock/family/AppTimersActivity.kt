@@ -107,14 +107,13 @@ class AppTimersActivity : AppCompatActivity() {
     }
 
     private fun loadAppsAsync() {
-        val cacheReady = InstalledAppsCache.isReady()
-        if (!cacheReady) {
-            loadingBar.visibility = View.VISIBLE
-        }
+        loadingBar.visibility = View.VISIBLE
 
         bgExecutor.execute {
             val appContext = applicationContext
-            val cached = InstalledAppsCache.getApps(appContext)
+            // Always refresh so uninstall/reinstall while Blanket stays alive
+            // cannot leave a stale launcher list (missing timed apps).
+            val cached = InstalledAppsCache.refresh(appContext)
             val usage = UsageStatsHelper.getTodayUsageMap(appContext, forceRefresh = true)
             val entries = AppTimersManager.buildEntries(appContext, cached, usage)
 

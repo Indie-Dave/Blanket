@@ -9,7 +9,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Loads launcher apps (label + icon) once via PackageManager and keeps them in memory.
+ * Loads launcher apps (label + icon) via PackageManager and keeps them in memory.
+ * Call [invalidate] / [refresh] when packages are installed, removed, or replaced —
+ * otherwise a long-lived process (e.g. with Accessibility) can keep a stale list
+ * and hide reinstalled apps that still have timers.
  */
 object InstalledAppsCache {
 
@@ -33,6 +36,29 @@ object InstalledAppsCache {
         if (ready || loading.get()) return
         val appContext = context.applicationContext
         executor.execute { ensureLoaded(appContext) }
+    }
+
+    /** Marks the cache stale so the next [getApps]/[preload] reloads from PackageManager. */
+    fun invalidate() {
+        synchronized(lock) {
+            ready = false
+            cachedApps = emptyList()
+        }
+    }
+
+    /** Always re-queries PackageManager and replaces the in-memory list. */
+    fun refresh(context: Context): List<CachedApp> {
+        val appContext = context.applicationContext
+        synchronized(lock) {
+            loading.set(true)
+            try {
+                cachedApps = loadApps(appContext)
+                ready = true
+            } finally {
+                loading.set(false)
+            }
+            return cachedApps
+        }
     }
 
     fun isReady(): Boolean = ready
