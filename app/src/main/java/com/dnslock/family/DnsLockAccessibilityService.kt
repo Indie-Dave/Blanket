@@ -2,6 +2,7 @@ package com.dnslock.family
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -52,18 +53,44 @@ class DnsLockAccessibilityService : AccessibilityService() {
         "com.samsung.android.settings"
     )
 
-    private val browserPackages = BROWSER_PACKAGES
-
     private val urlBarViewIdSuffixes = listOf(
         "url_bar",
-        "location_bar_edit_text",
-        "mozac_browser_toolbar_url_view",
+        "url_bar_title",
+        "url_bar_text",
+        "url_edit_text",
+        "url_field",
+        "url_input",
         "url_view",
+        "location_bar_edit_text",
+        "location_bar",
+        "mozac_browser_toolbar_url_view",
         "sites_bar",
         "toolbar_url_view",
         "search_box_text",
+        "search_field",
         "omnibox_text",
-        "url_bar_title"
+        "omnibox",
+        "omnibarTextInput",
+        "omnibar_text_input",
+        "address_bar",
+        "addressbar",
+        "address_bar_edit_text"
+    )
+
+    private val urlBarViewIdTokens = listOf(
+        "url_bar",
+        "urlbar",
+        "url_edit",
+        "url_field",
+        "url_input",
+        "url_view",
+        "omnibox",
+        "omnibar",
+        "address_bar",
+        "addressbar",
+        "location_bar",
+        "toolbar_url",
+        "search_box_text"
     )
 
     private var lastBlockedUrlSuppressUntil = 0L
@@ -93,6 +120,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        BrowserApps.preload(this)
     }
 
     override fun onDestroy() {
@@ -799,7 +827,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         val pkg = resolveForegroundPackage(event) ?: return
         val youtubeEnabled = ShortFormBlockManager.isYoutubeShortsBlocked(this)
         val instagramEnabled = ShortFormBlockManager.isInstagramReelsBlocked(this)
-        val inBrowser = pkg in browserPackages
+        val inBrowser = BrowserApps.isBrowser(this, pkg)
         val relevant = inBrowser ||
             (youtubeEnabled && ShortFormBlockManager.isYoutubePackage(pkg)) ||
             (instagramEnabled && ShortFormBlockManager.isInstagramPackage(pkg))
@@ -923,7 +951,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (redirectInProgress) return
 
         val pkg = resolveForegroundPackage(event) ?: return
-        if (pkg !in browserPackages) return
+        if (!BrowserApps.isBrowser(this, pkg)) return
 
         // Typing / search-bar editing: do not redirect while the soft keyboard is up.
         // Block only once the keyboard is down (URL committed / page loading or loaded).
@@ -939,6 +967,15 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
         event.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
             urlBarTexts.add(it)
+        }
+        event.source?.let { source ->
+            try {
+                if (isAddressBarNode(source)) {
+                    collectNodeAddressText(source, urlBarTexts)
+                }
+            } finally {
+                source.recycle()
+            }
         }
 
         rootInActiveWindow?.let { root ->
@@ -1006,7 +1043,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (PasswordManager.isDnsUnlocked(this)) return
 
         val pkg = resolveForegroundPackage(null) ?: return
-        if (pkg !in browserPackages) {
+        if (!BrowserApps.isBrowser(this, pkg)) {
             onBrowserDnsScreen = false
             handler.removeCallbacks(browserDnsRecheckRunnable)
             return
@@ -1122,28 +1159,42 @@ class DnsLockAccessibilityService : AccessibilityService() {
             val nodes = root.findAccessibilityNodeInfosByViewId("$pkg:id/$suffix") ?: continue
             for (node in nodes) {
                 try {
-                    node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
-                    node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        node.hintText?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
-                    }
+                    collectNodeAddressText(node, out)
                 } finally {
                     node.recycle()
                 }
             }
         }
 
-        // Fallback: walk only for known address-bar view ids (not in-page link text).
+        root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.let { focused ->
+            try {
+                if (isAddressBarNode(focused)) {
+                    collectNodeAddressText(focused, out)
+                }
+            } finally {
+                focused.recycle()
+            }
+        }
+
+        // Walk for address-bar ids that differ by browser, plus top toolbar fields.
+        // Skip WebView/Gecko trees so in-page links are not treated as the URL bar.
         walkForUrlBarText(root, out, 0)
+    }
+
+    private fun collectNodeAddressText(node: AccessibilityNodeInfo, out: MutableSet<String>) {
+        node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+        node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            node.hintText?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+        }
     }
 
     private fun walkForUrlBarText(node: AccessibilityNodeInfo?, out: MutableSet<String>, depth: Int) {
         if (node == null || depth > 24) return
+        if (isWebContentContainer(node)) return
 
-        val viewId = node.viewIdResourceName.orEmpty()
-        if (urlBarViewIdSuffixes.any { viewId.endsWith(it) }) {
-            node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
-            node.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { out.add(it) }
+        if (isAddressBarNode(node)) {
+            collectNodeAddressText(node, out)
         }
 
         for (i in 0 until node.childCount) {
@@ -1154,6 +1205,85 @@ class DnsLockAccessibilityService : AccessibilityService() {
                 child.recycle()
             }
         }
+    }
+
+    private fun isWebContentContainer(node: AccessibilityNodeInfo): Boolean {
+        val cls = node.className?.toString().orEmpty()
+        return cls.contains("WebView") ||
+            cls.contains("GeckoView") ||
+            cls.contains("GeckoEngineView") ||
+            cls.contains("GeckoSession") ||
+            cls.endsWith("EngineView") ||
+            cls.contains("AwContents") ||
+            cls.contains("CompositorView") ||
+            cls.contains("ContentView")
+    }
+
+    private fun isAddressBarNode(node: AccessibilityNodeInfo): Boolean {
+        if (node.isPassword) return false
+
+        val viewId = node.viewIdResourceName.orEmpty()
+        if (looksLikeUrlBarViewId(viewId)) return true
+
+        val desc = node.contentDescription?.toString().orEmpty()
+        if (looksLikeAddressBarDescription(desc) &&
+            (node.isEditable || isInTopToolbarBand(node))
+        ) {
+            return true
+        }
+
+        if (node.isEditable && isInTopToolbarBand(node)) {
+            val cls = node.className?.toString().orEmpty()
+            if (cls.contains("EditText") ||
+                cls.contains("AutoComplete") ||
+                cls.contains("TextView")
+            ) {
+                return true
+            }
+        }
+
+        if (!node.isEditable && isInTopToolbarBand(node)) {
+            val text = node.text?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty() && text.length < 500 && looksLikeUrlOrHost(text)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun looksLikeUrlBarViewId(viewId: String): Boolean {
+        if (viewId.isEmpty()) return false
+        val id = viewId.substringAfterLast('/').lowercase()
+        if (urlBarViewIdSuffixes.any { id.endsWith(it.lowercase()) }) return true
+        return urlBarViewIdTokens.any { id.contains(it) }
+    }
+
+    private fun looksLikeAddressBarDescription(value: String): Boolean {
+        val v = value.lowercase()
+        return v.contains("address bar") ||
+            v.contains("address and search") ||
+            v.contains("search or type") ||
+            v.contains("search or enter") ||
+            v.contains("type a url") ||
+            v.contains("type url") ||
+            v.contains("enter url") ||
+            v.contains("enter address") ||
+            v.contains("omnibox") ||
+            v.contains("url bar") ||
+            v.contains("suchbegriff oder url") ||
+            v.contains("suche oder url") ||
+            v.contains("adresse eingeben")
+    }
+
+    private fun isInTopToolbarBand(node: AccessibilityNodeInfo): Boolean {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        if (bounds.isEmpty) return false
+        val screenHeight = resources.displayMetrics.heightPixels.coerceAtLeast(1)
+        if (bounds.top > screenHeight * 0.28f) return false
+        val maxHeightPx = (88 * resources.displayMetrics.density).toInt()
+        if (bounds.height() > maxHeightPx) return false
+        return true
     }
 
     private fun looksLikeUrlOrHost(value: String): Boolean {
@@ -1238,9 +1368,9 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     private fun findUrlBarNodeByWalk(node: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
         if (node == null || depth > 24) return null
+        if (isWebContentContainer(node)) return null
 
-        val viewId = node.viewIdResourceName.orEmpty()
-        if (urlBarViewIdSuffixes.any { viewId.endsWith(it) }) {
+        if (isAddressBarNode(node)) {
             return AccessibilityNodeInfo.obtain(node)
         }
 
@@ -1392,21 +1522,6 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     companion object {
-        /** Browsers where site / keyword blocking and Secure DNS blocking apply. */
-        val BROWSER_PACKAGES = setOf(
-            "com.android.chrome",
-            "com.chrome.beta",
-            "com.chrome.dev",
-            "com.sec.android.app.sbrowser",
-            "com.sec.android.app.sbrowser.beta",
-            "org.mozilla.firefox",
-            "org.mozilla.firefox_beta",
-            "org.mozilla.fenix",
-            "com.brave.browser",
-            "com.brave.browser_beta",
-            "com.brave.browser_nightly"
-        )
-
         private const val SAFE_REDIRECT_URL = "https://www.google.com"
         private const val DISMISS_COOLDOWN_MS = 600L
         private const val BLOCKED_APP_SUPPRESS_MS = 4_000L

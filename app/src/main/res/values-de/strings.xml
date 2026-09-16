@@ -24,7 +24,7 @@
     <string name="force_stop_blocked_title">App-Info gesperrt</string>
     <string name="force_stop_blocked_reason">Die App-Info von Blanket ist nicht erlaubt, solange der Schutz aktiv ist.</string>
     <string name="blocked_sites_title">Gesperrte Webseiten</string>
-    <string name="blocked_sites_summary">Funktioniert in Chrome, Samsung Internet, Firefox und Brave. Sperrt die Domain und ihre Subdomains.</string>
+    <string name="blocked_sites_summary">Funktioniert in jedem Internet-Browser. Sperrt die Domain und ihre Subdomains.</string>
     <string name="blocked_sites_hint">Webseite eingeben (z. B. youtube.com)</string>
     <string name="add_blocked_site">Webseite hinzufügen</string>
     <string name="blocked_sites_empty">Keine Webseiten in der Liste</string>
@@ -34,7 +34,7 @@
     <string name="site_blocked_title">Webseite gesperrt</string>
     <string name="site_blocked_reason">%1$s steht auf deiner Sperrliste — zu Google weitergeleitet.</string>
     <string name="blocked_keywords_title">Gesperrte Stichwörter</string>
-    <string name="blocked_keywords_summary">Sperrt Browserseiten, wenn die Adresszeile das Stichwort enthält. Dieselben Browser wie bei Webseiten.</string>
+    <string name="blocked_keywords_summary">Sperrt Browserseiten, wenn die Adresszeile das Stichwort enthält. Funktioniert in jedem Internet-Browser.</string>
     <string name="blocked_keywords_hint">Stichwort eingeben (z. B. Glücksspiel)</string>
     <string name="add_blocked_keyword">Stichwort hinzufügen</string>
     <string name="blocked_keywords_empty">Keine Stichwörter in der Liste</string>

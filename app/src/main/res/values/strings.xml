@@ -24,7 +24,7 @@
     <string name="force_stop_blocked_title">App info blocked</string>
     <string name="force_stop_blocked_reason">Blanket\'s app info screen is not allowed while protection is active.</string>
     <string name="blocked_sites_title">Blocked websites</string>
-    <string name="blocked_sites_summary">Works in Chrome, Samsung Internet, Firefox and Brave. Blocks the domain and its subdomains.</string>
+    <string name="blocked_sites_summary">Works in any internet browser. Blocks the domain and its subdomains.</string>
     <string name="blocked_sites_hint">Enter website (e.g. youtube.com)</string>
     <string name="add_blocked_site">Add website</string>
     <string name="blocked_sites_empty">No websites on the list</string>
@@ -34,7 +34,7 @@
     <string name="site_blocked_title">Website blocked</string>
     <string name="site_blocked_reason">%1$s is on your blocklist — redirected to Google.</string>
     <string name="blocked_keywords_title">Blocked keywords</string>
-    <string name="blocked_keywords_summary">Blocks browser pages when the address bar contains the keyword. Same browsers as website blocking.</string>
+    <string name="blocked_keywords_summary">Blocks browser pages when the address bar contains the keyword. Works in any internet browser.</string>
     <string name="blocked_keywords_hint">Enter keyword (e.g. gambling)</string>
     <string name="add_blocked_keyword">Add keyword</string>
     <string name="blocked_keywords_empty">No keywords on the list</string>

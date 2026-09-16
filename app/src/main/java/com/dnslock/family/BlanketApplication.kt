@@ -14,6 +14,7 @@ class BlanketApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         InstalledAppsCache.preload(this)
+        BrowserApps.preload(this)
         registerPackageChangeReceiver()
     }
 
@@ -29,6 +30,8 @@ class BlanketApplication : Application() {
             override fun onReceive(context: Context, intent: Intent?) {
                 InstalledAppsCache.invalidate()
                 InstalledAppsCache.preload(context)
+                BrowserApps.invalidate()
+                BrowserApps.preload(context)
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
