@@ -7,6 +7,7 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -52,6 +53,12 @@ object AppTimerCountdownOverlay {
 
     private val tickRunnable = object : Runnable {
         override fun run() {
+            val ctx = appContext
+            if (ctx != null && !isDeviceInteractive(ctx)) {
+                // Phone is off or asleep. Hide the bar and do not expire the timer.
+                stop()
+                return
+            }
             val remaining = remainingProvider?.invoke() ?: 0L
             updateLabel(remaining)
             if (remaining <= 0L) {
@@ -62,6 +69,11 @@ object AppTimerCountdownOverlay {
             }
             handler.postDelayed(this, 1_000L)
         }
+    }
+
+    private fun isDeviceInteractive(context: Context): Boolean {
+        val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return true
+        return power.isInteractive
     }
 
     fun start(
@@ -75,6 +87,10 @@ object AppTimerCountdownOverlay {
             // Accessibility overlays must use the service Context for WindowManager.
             // applicationContext has no valid token and crashes with BadTokenException.
             appContext = context.applicationContext
+            if (!isDeviceInteractive(context)) {
+                stopInternal()
+                return@post
+            }
 
             // Already showing for this app — only refresh data, never recreate.
             if (activePackage == packageName && overlayView != null) {

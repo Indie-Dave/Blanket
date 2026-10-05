@@ -1,13 +1,18 @@
 package com.dnslock.family
 
 import android.accessibilityservice.AccessibilityService
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -98,6 +103,11 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private var monitoredTimerPackage: String? = null
     private var timerSessionStartedAt = 0L
     private var timerSessionBaselineUsageMs = 0L
+    private var screenOnSegmentStartMs = 0L
+    private var screenOnAccumulatedMs = 0L
+    private var screenOffAtMs = 0L
+    private var sessionScreenOffMs = 0L
+    private var youtubeForceCloseAttempts = 0
     private var lastUsageStatsRefreshAt = 0L
     private var lastAppTimerEvalAt = 0L
     private var lastShortFormEvalAt = 0L
@@ -117,13 +127,44 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private val browserDnsRecheckRunnable = Runnable { blockBrowserDnsScreen(fromRecheck = true) }
     private val appTimerRecheckRunnable = Runnable { evaluateAppTimerLimit(fromRecheck = true) }
     private val clearAppTimerRunnable = Runnable { clearAppTimerMonitor() }
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> onTimerScreenOff()
+                Intent.ACTION_SCREEN_ON,
+                Intent.ACTION_USER_PRESENT -> onDeviceWoke()
+            }
+        }
+    }
+
+    private val suggestionContainerIdTokens = listOf(
+        "suggestion",
+        "autocomplete",
+        "omnibox_results",
+        "awesomebar"
+    )
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         BrowserApps.preload(this)
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(screenReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(screenReceiver, filter)
+        }
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: IllegalArgumentException) {
+        }
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
@@ -245,6 +286,11 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     private fun enforceAppTimerForPackage(pkg: String, fromRecheck: Boolean) {
+        if (isTimerStandby()) {
+            pauseTimerForStandby()
+            return
+        }
+
         val hasLimit = AppTimersManager.getLimitMinutes(this, pkg) > 0
         val hasWindows = AppTimersManager.hasBlockWindows(this, pkg)
 
@@ -287,6 +333,19 @@ class DnsLockAccessibilityService : AccessibilityService() {
             return
         }
 
+        if (!isTimedAppStillForeground(pkg)) {
+            // Screen is on, but this app is not in front. Keep the bar hidden
+            // and do not keep the live clock running.
+            if (screenOnSegmentStartMs > 0L) {
+                val now = System.currentTimeMillis()
+                screenOnAccumulatedMs += (now - screenOnSegmentStartMs).coerceAtLeast(0L)
+                screenOnSegmentStartMs = 0L
+            }
+            AppTimerCountdownOverlay.stop()
+            return
+        }
+        resumeTimerSegment()
+
         if (!UsageStatsHelper.hasUsageAccess(this)) {
             beginTimerSessionIfNeeded(pkg, 0L)
             startOrRefreshCountdown(pkg)
@@ -303,13 +362,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (forceRefresh) lastUsageStatsRefreshAt = now
         beginTimerSessionIfNeeded(pkg, systemUsedToday)
 
-        val remaining = AppTimersManager.remainingMs(
-            context = this,
-            packageName = pkg,
-            sessionBaselineUsageMs = timerSessionBaselineUsageMs,
-            sessionStartedAtMs = timerSessionStartedAt,
-            forceRefresh = false
-        )
+        val remaining = liveRemainingMs(pkg)
         startOrRefreshCountdown(pkg)
         if (remaining <= 0L) {
             maybeDismissTimedOutApp(pkg)
@@ -361,20 +414,18 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     private fun startOrRefreshCountdown(pkg: String) {
+        if (isTimerStandby() || !isTimedAppStillForeground(pkg)) {
+            AppTimerCountdownOverlay.stop()
+            return
+        }
         val appName = BlockedAppsManager.getAppDisplayName(this, pkg)
         AppTimerCountdownOverlay.start(
             context = this,
             packageName = pkg,
             appName = appName,
             remainingProvider = {
-                // remaining = timer limit − today's phone usage (DW / usage stats)
-                AppTimersManager.remainingMs(
-                    context = this,
-                    packageName = pkg,
-                    sessionBaselineUsageMs = timerSessionBaselineUsageMs,
-                    sessionStartedAtMs = timerSessionStartedAt,
-                    forceRefresh = false
-                )
+                // remaining = timer limit − today's phone usage while the screen is on
+                liveRemainingMs(pkg)
             },
             onExpired = { maybeDismissTimedOutApp(pkg) }
         )
@@ -383,9 +434,14 @@ class DnsLockAccessibilityService : AccessibilityService() {
     private fun beginTimerSessionIfNeeded(pkg: String, systemUsedTodayMs: Long) {
         if (monitoredTimerPackage == pkg && timerSessionStartedAt > 0L) {
             // Keep baseline aligned with phone usage if stats report more time used.
-            val sessionElapsed =
-                (System.currentTimeMillis() - timerSessionStartedAt).coerceAtLeast(0L)
-            val impliedBaseline = (systemUsedTodayMs - sessionElapsed).coerceAtLeast(0L)
+            // Screen-off time is excluded so it is not baked into the baseline.
+            val sessionElapsed = screenOnSessionElapsedMs()
+            val adjustedSystem = (
+                systemUsedTodayMs -
+                    AppTimersManager.screenOffOvercountMs(this, pkg) -
+                    sessionIdleMs()
+                ).coerceAtLeast(0L)
+            val impliedBaseline = (adjustedSystem - sessionElapsed).coerceAtLeast(0L)
             if (impliedBaseline > timerSessionBaselineUsageMs) {
                 timerSessionBaselineUsageMs = impliedBaseline
             }
@@ -393,12 +449,148 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
         if (monitoredTimerPackage != null && monitoredTimerPackage != pkg) {
             // Don't tear down the overlay here — start() will replace it once for the new app.
+            persistScreenOffOvercount(monitoredTimerPackage!!)
             cancelScheduledClearAppTimer()
         }
         monitoredTimerPackage = pkg
         timerSessionStartedAt = System.currentTimeMillis()
-        // Baseline = already-used time from the phone (DW / usage stats).
-        timerSessionBaselineUsageMs = systemUsedTodayMs.coerceAtLeast(0L)
+        // Baseline = already-used time from the phone, minus screen-off spans.
+        timerSessionBaselineUsageMs = (
+            systemUsedTodayMs - AppTimersManager.screenOffOvercountMs(this, pkg)
+            ).coerceAtLeast(0L)
+        resetScreenOnAccounting()
+        youtubeForceCloseAttempts = 0
+    }
+
+    /**
+     * If usage stats billed screen-off time for this visit, remember that extra
+     * so the next session does not count it again. No-op when stats paused
+     * correctly while the screen was off.
+     */
+    private fun persistScreenOffOvercount(pkg: String) {
+        if (timerSessionStartedAt <= 0L || timerSessionBaselineUsageMs < 0L) return
+        val gross = UsageStatsHelper.getTodayUsageMs(this, pkg, forceRefresh = true)
+        val already = AppTimersManager.screenOffOvercountMs(this, pkg)
+        val net = (gross - already).coerceAtLeast(0L)
+        val accounted = timerSessionBaselineUsageMs + screenOnSessionElapsedMs()
+        val over = (net - accounted).coerceAtLeast(0L)
+        AppTimersManager.addScreenOffOvercount(this, pkg, over)
+    }
+
+    private fun liveRemainingMs(pkg: String): Long {
+        val sessionActive = timerSessionStartedAt > 0L
+        // While asleep or on the lock screen, ignore usage stats. They keep billing
+        // an open session through "now" and would jump the countdown by the sleep.
+        if (sessionActive && (isTimerStandby() || screenOffAtMs > 0L)) {
+            val limitMinutes = AppTimersManager.getLimitMinutes(this, pkg)
+            if (limitMinutes <= 0) return Long.MAX_VALUE
+            val used = timerSessionBaselineUsageMs + screenOnAccumulatedMs
+            return (limitMinutes * 60_000L - used).coerceAtLeast(0L)
+        }
+        return AppTimersManager.remainingMs(
+            context = this,
+            packageName = pkg,
+            sessionBaselineUsageMs = timerSessionBaselineUsageMs,
+            sessionStartedAtMs = timerSessionStartedAt,
+            forceRefresh = false,
+            sessionElapsedOverrideMs = if (sessionActive) screenOnSessionElapsedMs() else -1L,
+            idleMsToExclude = if (sessionActive) sessionIdleMs() else 0L
+        )
+    }
+
+    private fun isScreenInteractive(): Boolean {
+        val power = getSystemService(POWER_SERVICE) as? PowerManager ?: return true
+        return power.isInteractive
+    }
+
+    private fun isKeyguardLocked(): Boolean {
+        val keyguard = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager ?: return false
+        return keyguard.isKeyguardLocked
+    }
+
+    /** Screen off, doze/sleep (!interactive), or the lock screen. */
+    private fun isTimerStandby(): Boolean = !isScreenInteractive() || isKeyguardLocked()
+
+    private fun onTimerScreenOff() {
+        pauseTimerForStandby()
+    }
+
+    /** Screen on or unlocked. Count and show the bar only if the timed app is in front. */
+    private fun onDeviceWoke() {
+        if (isTimerStandby()) {
+            pauseTimerForStandby()
+            return
+        }
+        val pkg = monitoredTimerPackage ?: return
+        if (!isTimedAppStillForeground(pkg)) {
+            AppTimerCountdownOverlay.stop()
+            return
+        }
+        evaluateAppTimerLimit(fromRecheck = true)
+    }
+
+    /**
+     * Freeze the screen-on clock, hide the countdown bar, and stop timer ticks.
+     * The gap stays open in [screenOffAtMs] so wake-up does not bill it.
+     */
+    private fun pauseTimerForStandby() {
+        val now = System.currentTimeMillis()
+        if (screenOnSegmentStartMs > 0L) {
+            screenOnAccumulatedMs += (now - screenOnSegmentStartMs).coerceAtLeast(0L)
+            screenOnSegmentStartMs = 0L
+        }
+        if (timerSessionStartedAt > 0L && screenOffAtMs == 0L) {
+            screenOffAtMs = now
+        }
+        handler.removeCallbacks(appTimerRecheckRunnable)
+        AppTimerCountdownOverlay.stop()
+    }
+
+    /** Start the screen-on clock again. Closes the standby gap first. */
+    private fun resumeTimerSegment() {
+        if (isTimerStandby()) return
+        val now = System.currentTimeMillis()
+        if (screenOffAtMs > 0L) {
+            sessionScreenOffMs += (now - screenOffAtMs).coerceAtLeast(0L)
+            screenOffAtMs = 0L
+        }
+        if (monitoredTimerPackage != null && screenOnSegmentStartMs == 0L && timerSessionStartedAt > 0L) {
+            screenOnSegmentStartMs = now
+        }
+    }
+
+    private fun resetScreenOnAccounting() {
+        screenOnAccumulatedMs = 0L
+        sessionScreenOffMs = 0L
+        screenOffAtMs = 0L
+        screenOnSegmentStartMs = if (isScreenInteractive()) System.currentTimeMillis() else 0L
+    }
+
+    /** Foreground time in this visit while the screen was on. Frozen while asleep. */
+    private fun screenOnSessionElapsedMs(): Long {
+        // Backstop if ACTION_SCREEN_OFF has not arrived yet.
+        if (screenOnSegmentStartMs > 0L && isTimerStandby()) {
+            val now = System.currentTimeMillis()
+            screenOnAccumulatedMs += (now - screenOnSegmentStartMs).coerceAtLeast(0L)
+            screenOnSegmentStartMs = 0L
+            if (timerSessionStartedAt > 0L && screenOffAtMs == 0L) screenOffAtMs = now
+        }
+        val running = if (screenOnSegmentStartMs > 0L && !isTimerStandby()) {
+            (System.currentTimeMillis() - screenOnSegmentStartMs).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        return screenOnAccumulatedMs + running
+    }
+
+    /** Screen-off / lock-screen time during this visit, including an ongoing standby. */
+    private fun sessionIdleMs(): Long {
+        val ongoing = if (screenOffAtMs > 0L) {
+            (System.currentTimeMillis() - screenOffAtMs).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        return sessionScreenOffMs + ongoing
     }
 
     private fun scheduleAppTimerRecheck(delayMs: Long) {
@@ -416,10 +608,16 @@ class DnsLockAccessibilityService : AccessibilityService() {
     }
 
     private fun clearAppTimerMonitor() {
+        monitoredTimerPackage?.let { persistScreenOffOvercount(it) }
         cancelScheduledClearAppTimer()
         monitoredTimerPackage = null
         timerSessionStartedAt = 0L
         timerSessionBaselineUsageMs = 0L
+        screenOnSegmentStartMs = 0L
+        screenOnAccumulatedMs = 0L
+        screenOffAtMs = 0L
+        sessionScreenOffMs = 0L
+        youtubeForceCloseAttempts = 0
         handler.removeCallbacks(appTimerRecheckRunnable)
         AppTimerCountdownOverlay.stop()
     }
@@ -429,12 +627,165 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (now < blockedSuppressUntil.getOrDefault(pkg, 0L)) return
 
         AppTimerCountdownOverlay.stop()
-        if (performGlobalAction(GLOBAL_ACTION_HOME)) {
-            blockedSuppressUntil[pkg] = now + BLOCKED_APP_SUPPRESS_MS
-            clearAppTimerMonitor()
-            val appName = BlockedAppsManager.getAppDisplayName(this, pkg)
-            ProtectionInfoPopup.showAppTimerExceeded(this, appName)
+        if (ShortFormBlockManager.isYoutubePackage(pkg)) {
+            val gone = forceCloseYoutube(pkg)
+            if (!gone && youtubeForceCloseAttempts < YOUTUBE_FORCE_CLOSE_ATTEMPTS) {
+                youtubeForceCloseAttempts++
+                scheduleAppTimerRecheck(YOUTUBE_CLOSE_RETRY_MS)
+                return
+            }
+            youtubeForceCloseAttempts = 0
+            handler.postDelayed({ sweepYoutubePictureInPicture(pkg) }, YOUTUBE_CLOSE_RETRY_MS)
+        } else if (!performGlobalAction(GLOBAL_ACTION_HOME)) {
+            scheduleAppTimerRecheck(APP_TIMER_TICK_MS)
+            return
         }
+
+        blockedSuppressUntil[pkg] = now + BLOCKED_APP_SUPPRESS_MS
+        clearAppTimerMonitor()
+        val appName = BlockedAppsManager.getAppDisplayName(this, pkg)
+        ProtectionInfoPopup.showAppTimerExceeded(this, appName)
+    }
+
+    /**
+     * Home alone leaves YouTube in the player, a second activity, or picture-in-picture.
+     * Back out of the player, go home, then dismiss PiP. Returns true once nothing
+     * of [pkg] is still on screen.
+     */
+    private fun forceCloseYoutube(pkg: String): Boolean {
+        if (isPackageInPictureInPicture(pkg)) {
+            dismissPictureInPicture(pkg)
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            openLauncherHome()
+            return !isYoutubeStillOpen(pkg)
+        }
+        if (isTimedAppStillForeground(pkg)) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        openLauncherHome()
+        dismissPictureInPicture(pkg)
+        return !isYoutubeStillOpen(pkg)
+    }
+
+    /** YouTube enters PiP a moment after Home. Close that window if it appears. */
+    private fun sweepYoutubePictureInPicture(pkg: String) {
+        if (!isPackageInPictureInPicture(pkg) && !isTimedAppStillForeground(pkg)) return
+        dismissPictureInPicture(pkg)
+        if (isTimedAppStillForeground(pkg)) {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            openLauncherHome()
+        }
+        dismissPictureInPicture(pkg)
+    }
+
+    private fun openLauncherHome() {
+        try {
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun isYoutubeStillOpen(pkg: String): Boolean {
+        return isTimedAppStillForeground(pkg) || isPackageWindowVisible(pkg) || isPackageInPictureInPicture(pkg)
+    }
+
+    private fun isPackageWindowVisible(pkg: String): Boolean {
+        val wins = windows ?: return false
+        for (window in wins) {
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+            val root = window.root ?: continue
+            try {
+                if (root.packageName?.toString() == pkg) return true
+            } finally {
+                root.recycle()
+            }
+        }
+        return false
+    }
+
+    private fun isPackageInPictureInPicture(pkg: String): Boolean {
+        val wins = windows ?: return false
+        for (window in wins) {
+            if (!window.isInPictureInPictureMode) continue
+            val root = window.root ?: continue
+            try {
+                if (root.packageName?.toString() == pkg) return true
+            } finally {
+                root.recycle()
+            }
+        }
+        return false
+    }
+
+    private fun dismissPictureInPicture(pkg: String) {
+        val wins = windows ?: return
+        for (window in wins) {
+            if (!window.isInPictureInPictureMode) continue
+            val root = window.root ?: continue
+            try {
+                val windowPkg = root.packageName?.toString()
+                if (windowPkg != pkg && windowPkg != "com.android.systemui") continue
+                root.performAction(AccessibilityNodeInfo.ACTION_DISMISS)
+                clickPipClose(root, 0, windowIsPip = true)
+            } finally {
+                root.recycle()
+            }
+        }
+        clickSystemPipClose()
+    }
+
+    private fun clickSystemPipClose() {
+        val wins = windows ?: return
+        for (window in wins) {
+            val root = window.root ?: continue
+            try {
+                if (root.packageName?.toString() != "com.android.systemui") continue
+                clickPipClose(root, 0, windowIsPip = false)
+            } finally {
+                root.recycle()
+            }
+        }
+    }
+
+    private fun clickPipClose(
+        node: AccessibilityNodeInfo,
+        depth: Int,
+        windowIsPip: Boolean
+    ): Boolean {
+        if (depth > 12) return false
+        val id = node.viewIdResourceName.orEmpty().lowercase()
+        val label = (
+            node.contentDescription?.toString().orEmpty() + " " +
+                node.text?.toString().orEmpty()
+            ).lowercase()
+        val pipRelated = windowIsPip ||
+            id.contains("pip") ||
+            label.contains("picture-in-picture") ||
+            label.contains("bild-im-bild") ||
+            label.contains("bild im bild")
+        val close = label.contains("close") ||
+            label.contains("dismiss") ||
+            label.contains("schließen") ||
+            label.contains("schliessen") ||
+            id.endsWith("/dismiss") ||
+            id.contains("close")
+        if (pipRelated && close) {
+            if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                if (clickPipClose(child, depth + 1, windowIsPip)) return true
+            } finally {
+                child.recycle()
+            }
+        }
+        return false
     }
 
     /** @return true if the app was sent home. False means retry on the next tick. */
@@ -961,17 +1312,23 @@ class DnsLockAccessibilityService : AccessibilityService() {
         if (now < lastBlockedUrlSuppressUntil) return
 
         val urlBarTexts = LinkedHashSet<String>()
+        val eventTexts = LinkedHashSet<String>()
+        val collectState = UrlCollectState()
 
         event.text?.forEach { chunk ->
-            chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { urlBarTexts.add(it) }
+            chunk?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { eventTexts.add(it) }
         }
         event.contentDescription?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            urlBarTexts.add(it)
+            eventTexts.add(it)
         }
+        var sourceIsSuggestion = false
         event.source?.let { source ->
             try {
-                if (isAddressBarNode(source)) {
-                    collectNodeAddressText(source, urlBarTexts)
+                sourceIsSuggestion = isInSuggestionUi(source)
+                if (sourceIsSuggestion) {
+                    collectState.suggestionVisible = true
+                } else if (isAddressBarNode(source)) {
+                    noteAddressBarNode(source, urlBarTexts, collectState)
                 }
             } finally {
                 source.recycle()
@@ -979,7 +1336,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
 
         rootInActiveWindow?.let { root ->
-            collectUrlCandidatesFromRoot(root, pkg, urlBarTexts)
+            collectUrlCandidatesFromRoot(root, pkg, urlBarTexts, collectState)
         }
 
         windows?.forEach { window ->
@@ -987,23 +1344,40 @@ class DnsLockAccessibilityService : AccessibilityService() {
             val root = window.root ?: return@forEach
             try {
                 if (root.packageName?.toString() == pkg) {
-                    collectUrlCandidatesFromRoot(root, pkg, urlBarTexts)
+                    collectUrlCandidatesFromRoot(root, pkg, urlBarTexts, collectState)
                 }
             } finally {
                 root.recycle()
             }
         }
 
-        if (urlBarTexts.isEmpty()) return
+        // Suggestion rows and in-progress typing are not a committed navigation.
+        if (!sourceIsSuggestion && !collectState.suggestionVisible) {
+            urlBarTexts.addAll(eventTexts)
+        }
+
+        if (urlBarTexts.isEmpty() && collectState.committedQueries.isEmpty()) return
+
+        val keywordTexts = LinkedHashSet<String>()
+        if (!collectState.suggestionVisible && !collectState.addressBarEditing) {
+            keywordTexts.addAll(collectState.committedQueries)
+            for (text in urlBarTexts) {
+                if (isSubmittedSearchText(text)) keywordTexts.add(text)
+            }
+        }
 
         val urlBarHost = urlBarTexts.firstNotNullOfOrNull {
             BlockedSitesManager.extractHostPublic(it)
         }
         if (urlBarHost != null && BlockedSitesManager.isSafeRedirectHost(urlBarHost)) {
-            // On Google itself: only block keywords in search/path URLs, not the bare homepage.
-            if (!looksLikeGoogleSearchOrPath(urlBarTexts)) return
+            // On Google itself: only block keywords in a submitted search, not the homepage
+            // and not omnibox suggestions.
+            if (keywordTexts.isEmpty()) return
+            val submittedSearch = looksLikeGoogleSearchOrPath(urlBarTexts) ||
+                collectState.committedQueries.isNotEmpty()
+            if (!submittedSearch) return
 
-            val matchedKeywordOnGoogle = BlockedKeywordsManager.findMatchingKeyword(this, urlBarTexts)
+            val matchedKeywordOnGoogle = BlockedKeywordsManager.findMatchingKeyword(this, keywordTexts)
                 ?: return
 
             lastBlockedUrlSuppressUntil = now + BLOCKED_SITE_SUPPRESS_MS
@@ -1020,7 +1394,11 @@ class DnsLockAccessibilityService : AccessibilityService() {
             null
         }
 
-        val matchedKeyword = BlockedKeywordsManager.findMatchingKeyword(this, urlBarTexts)
+        val matchedKeyword = if (keywordTexts.isEmpty()) {
+            null
+        } else {
+            BlockedKeywordsManager.findMatchingKeyword(this, keywordTexts)
+        }
 
         if (matchedDomain == null && matchedKeyword == null) return
 
@@ -1141,6 +1519,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
     private fun looksLikeGoogleSearchOrPath(texts: Collection<String>): Boolean {
         return texts.any { text ->
+            if (isAutocompleteTraffic(text)) return@any false
             val lower = text.lowercase()
             lower.contains("/search") ||
                 lower.contains("q=") ||
@@ -1150,16 +1529,82 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Omnibox autocomplete endpoints and suggestion APIs. These are not a search
+     * the user submitted.
+     */
+    private fun isAutocompleteTraffic(value: String): Boolean {
+        val lower = value.lowercase()
+        return lower.contains("/complete/search") ||
+            lower.contains("suggestqueries") ||
+            lower.contains("google.com/complete") ||
+            lower.contains("/ac?") ||
+            lower.contains("opensearch") ||
+            lower.contains("search/suggest") ||
+            lower.contains("/suggest?") ||
+            lower.contains("client=chrome-omni") ||
+            lower.contains("gs_ri=")
+    }
+
+    /** A loaded search URL (q=, /search, …), not a partially typed query. */
+    private fun isSubmittedSearchText(text: String): Boolean {
+        if (isAutocompleteTraffic(text)) return false
+        val lower = text.lowercase()
+        val navigated = lower.contains("://") || looksLikeUrlOrHost(text)
+        if (!navigated) return false
+        val hasQuery = lower.contains("q=") ||
+            lower.contains("query=") ||
+            lower.contains("search_query=") ||
+            lower.contains("?p=") ||
+            lower.contains("&p=")
+        if (!hasQuery) return false
+        return lower.contains("search") ||
+            lower.contains("google.") ||
+            lower.contains("bing.") ||
+            lower.contains("duckduckgo.") ||
+            lower.contains("yahoo.") ||
+            lower.contains("ecosia.") ||
+            lower.contains("startpage.") ||
+            lower.contains("brave.com") ||
+            lower.contains("kagi.com")
+    }
+
+    private fun isSuggestionContainer(node: AccessibilityNodeInfo): Boolean {
+        val id = node.viewIdResourceName.orEmpty().lowercase()
+        val cls = node.className?.toString().orEmpty().lowercase()
+        if (cls.contains("autocomplete") || cls.contains("suggestion")) return true
+        return suggestionContainerIdTokens.any { token -> id.contains(token) }
+    }
+
+    private fun isInSuggestionUi(node: AccessibilityNodeInfo): Boolean {
+        if (isSuggestionContainer(node)) return true
+        var parent = node.parent ?: return false
+        var depth = 0
+        while (true) {
+            val matches = isSuggestionContainer(parent)
+            val next = if (depth < 5) parent.parent else null
+            parent.recycle()
+            if (matches) {
+                next?.recycle()
+                return true
+            }
+            if (next == null) return false
+            parent = next
+            depth++
+        }
+    }
+
     private fun collectUrlCandidatesFromRoot(
         root: AccessibilityNodeInfo,
         pkg: String,
-        out: MutableSet<String>
+        out: MutableSet<String>,
+        state: UrlCollectState? = null
     ) {
         for (suffix in urlBarViewIdSuffixes) {
             val nodes = root.findAccessibilityNodeInfosByViewId("$pkg:id/$suffix") ?: continue
             for (node in nodes) {
                 try {
-                    collectNodeAddressText(node, out)
+                    noteAddressBarNode(node, out, state)
                 } finally {
                     node.recycle()
                 }
@@ -1169,7 +1614,7 @@ class DnsLockAccessibilityService : AccessibilityService() {
         root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.let { focused ->
             try {
                 if (isAddressBarNode(focused)) {
-                    collectNodeAddressText(focused, out)
+                    noteAddressBarNode(focused, out, state)
                 }
             } finally {
                 focused.recycle()
@@ -1178,7 +1623,33 @@ class DnsLockAccessibilityService : AccessibilityService() {
 
         // Walk for address-bar ids that differ by browser, plus top toolbar fields.
         // Skip WebView/Gecko trees so in-page links are not treated as the URL bar.
-        walkForUrlBarText(root, out, 0)
+        walkForUrlBarText(root, out, 0, state)
+    }
+
+    private fun noteAddressBarNode(
+        node: AccessibilityNodeInfo,
+        out: MutableSet<String>,
+        state: UrlCollectState?
+    ) {
+        if (state != null && isInSuggestionUi(node)) {
+            state.suggestionVisible = true
+            return
+        }
+        collectNodeAddressText(node, out)
+        if (state == null) return
+        if (node.isEditable && (node.isFocused || node.isAccessibilityFocused)) {
+            state.addressBarEditing = true
+        }
+        if (!node.isEditable && !node.isFocused) {
+            val text = node.text?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty() &&
+                !looksLikeUrlOrHost(text) &&
+                !looksLikeAddressBarDescription(text) &&
+                !isAutocompleteTraffic(text)
+            ) {
+                state.committedQueries.add(text)
+            }
+        }
     }
 
     private fun collectNodeAddressText(node: AccessibilityNodeInfo, out: MutableSet<String>) {
@@ -1189,18 +1660,27 @@ class DnsLockAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun walkForUrlBarText(node: AccessibilityNodeInfo?, out: MutableSet<String>, depth: Int) {
+    private fun walkForUrlBarText(
+        node: AccessibilityNodeInfo?,
+        out: MutableSet<String>,
+        depth: Int,
+        state: UrlCollectState? = null
+    ) {
         if (node == null || depth > 24) return
         if (isWebContentContainer(node)) return
+        if (state != null && isSuggestionContainer(node)) {
+            state.suggestionVisible = true
+            return
+        }
 
         if (isAddressBarNode(node)) {
-            collectNodeAddressText(node, out)
+            noteAddressBarNode(node, out, state)
         }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {
-                walkForUrlBarText(child, out, depth + 1)
+                walkForUrlBarText(child, out, depth + 1, state)
             } finally {
                 child.recycle()
             }
@@ -1518,7 +1998,18 @@ class DnsLockAccessibilityService : AccessibilityService() {
         monitoredTimerPackage = null
         timerSessionStartedAt = 0L
         timerSessionBaselineUsageMs = 0L
+        screenOnSegmentStartMs = 0L
+        screenOnAccumulatedMs = 0L
+        screenOffAtMs = 0L
+        sessionScreenOffMs = 0L
+        youtubeForceCloseAttempts = 0
         AppTimerCountdownOverlay.stop()
+    }
+
+    private class UrlCollectState {
+        val committedQueries = LinkedHashSet<String>()
+        var addressBarEditing = false
+        var suggestionVisible = false
     }
 
     companion object {
@@ -1533,6 +2024,8 @@ class DnsLockAccessibilityService : AccessibilityService() {
         private const val RECHECK_DELAY_MS = 200L
         private const val BROWSER_DNS_BLOCK_COOLDOWN_MS = 800L
         private const val APP_TIMER_TICK_MS = 1_000L
+        private const val YOUTUBE_CLOSE_RETRY_MS = 450L
+        private const val YOUTUBE_FORCE_CLOSE_ATTEMPTS = 6
         private const val USAGE_STATS_REFRESH_MS = 15_000L
         private const val APP_TIMER_EVENT_THROTTLE_MS = 400L
         private const val APP_TIMER_CLEAR_DEBOUNCE_MS = 800L

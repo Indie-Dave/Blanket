@@ -1,6 +1,7 @@
 package com.dnslock.family
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.drawable.Drawable
 import android.text.format.DateFormat
 import org.json.JSONArray
@@ -17,6 +18,8 @@ object AppTimersManager {
     private const val PREFS_NAME = "app_timers"
     private const val KEY_LIMITS_JSON = "limits_json"
     private const val KEY_WINDOWS_JSON = "windows_json"
+    private const val KEY_EXCLUDED_IDLE_JSON = "excluded_idle_json"
+    private const val KEY_EXCLUDED_IDLE_DAY = "excluded_idle_day"
     private const val MINUTES_PER_DAY = 24 * 60
 
     data class BlockWindow(
@@ -119,15 +122,18 @@ object AppTimersManager {
      *   timer limit − today's screen time from Android usage stats
      *   (same source Digital Wellbeing uses).
      *
-     * While the app is open, [sessionBaselineUsageMs] + elapsed fills gaps
-     * where usage stats lag behind the live session.
+     * While the app is open, [sessionBaselineUsageMs] + screen-on elapsed fills
+     * gaps where usage stats lag. Time with the screen off is not counted:
+     * pass [sessionElapsedOverrideMs] (screen-on only) and [idleMsToExclude].
      */
     fun remainingMs(
         context: Context,
         packageName: String,
         sessionBaselineUsageMs: Long = -1L,
         sessionStartedAtMs: Long = 0L,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        sessionElapsedOverrideMs: Long = -1L,
+        idleMsToExclude: Long = 0L
     ): Long {
         val limitMinutes = getLimitMinutes(context, packageName)
         if (limitMinutes <= 0) return Long.MAX_VALUE
@@ -137,7 +143,9 @@ object AppTimersManager {
             packageName = packageName,
             sessionBaselineUsageMs = sessionBaselineUsageMs,
             sessionStartedAtMs = sessionStartedAtMs,
-            forceRefresh = forceRefresh
+            forceRefresh = forceRefresh,
+            sessionElapsedOverrideMs = sessionElapsedOverrideMs,
+            idleMsToExclude = idleMsToExclude
         )
         return (limitMs - used).coerceAtLeast(0L)
     }
@@ -145,20 +153,35 @@ object AppTimersManager {
     /**
      * Today's used time from the phone's usage stats, optionally blended with
      * the current foreground session so the countdown keeps moving.
+     *
+     * [sessionElapsedOverrideMs] replaces wall-clock elapsed so screen-off time
+     * is not consumed. [idleMsToExclude] drops that same idle span if usage
+     * stats still bill an open session through "now".
      */
     fun effectiveUsedTodayMs(
         context: Context,
         packageName: String,
         sessionBaselineUsageMs: Long = -1L,
         sessionStartedAtMs: Long = 0L,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        sessionElapsedOverrideMs: Long = -1L,
+        idleMsToExclude: Long = 0L
     ): Long {
-        val systemUsed = UsageStatsHelper.getTodayUsageMs(context, packageName, forceRefresh)
-        if (sessionStartedAtMs <= 0L || sessionBaselineUsageMs < 0L) {
+        val systemUsed = (
+            UsageStatsHelper.getTodayUsageMs(context, packageName, forceRefresh) -
+                screenOffOvercountMs(context, packageName) -
+                idleMsToExclude
+            ).coerceAtLeast(0L)
+        val hasLiveSession = sessionBaselineUsageMs >= 0L &&
+            (sessionStartedAtMs > 0L || sessionElapsedOverrideMs >= 0L)
+        if (!hasLiveSession) {
             return systemUsed
         }
-        val sessionElapsed =
+        val sessionElapsed = if (sessionElapsedOverrideMs >= 0L) {
+            sessionElapsedOverrideMs.coerceAtLeast(0L)
+        } else {
             (System.currentTimeMillis() - sessionStartedAtMs).coerceAtLeast(0L)
+        }
         // Always prefer the higher value: system stats are the source of truth
         // for prior usage; session elapsed covers live time until stats catch up.
         return maxOf(systemUsed, sessionBaselineUsageMs + sessionElapsed)
@@ -252,9 +275,65 @@ object AppTimersManager {
         return formatWindows(context, active.ifEmpty { windows })
     }
 
+    /**
+     * Usage-stats time that fell during screen-off while a timed app stayed open.
+     * Subtracted from later readings so that idle span is not billed again.
+     */
+    fun screenOffOvercountMs(context: Context, packageName: String): Long {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getLong(KEY_EXCLUDED_IDLE_DAY, 0L) != startOfTodayMs()) return 0L
+        return readExcludedIdle(prefs)[packageName] ?: 0L
+    }
+
+    fun addScreenOffOvercount(context: Context, packageName: String, extraMs: Long) {
+        if (extraMs <= 0L || packageName.isEmpty()) return
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val today = startOfTodayMs()
+        val map = if (prefs.getLong(KEY_EXCLUDED_IDLE_DAY, 0L) == today) {
+            readExcludedIdle(prefs)
+        } else {
+            mutableMapOf()
+        }
+        map[packageName] = (map[packageName] ?: 0L) + extraMs
+        val json = JSONObject()
+        for ((pkg, ms) in map) {
+            if (ms > 0L) json.put(pkg, ms)
+        }
+        prefs.edit()
+            .putLong(KEY_EXCLUDED_IDLE_DAY, today)
+            .putString(KEY_EXCLUDED_IDLE_JSON, json.toString())
+            .apply()
+    }
+
     fun currentMinutesOfDay(): Int {
         val cal = Calendar.getInstance()
         return cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+    }
+
+    private fun startOfTodayMs(): Long {
+        return Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    private fun readExcludedIdle(prefs: SharedPreferences): MutableMap<String, Long> {
+        val raw = prefs.getString(KEY_EXCLUDED_IDLE_JSON, null) ?: return mutableMapOf()
+        return try {
+            val json = JSONObject(raw)
+            val map = mutableMapOf<String, Long>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val ms = json.optLong(key, 0L)
+                if (ms > 0L) map[key] = ms
+            }
+            map
+        } catch (_: Exception) {
+            mutableMapOf()
+        }
     }
 
     private fun readLimits(context: Context): MutableMap<String, Int> {
