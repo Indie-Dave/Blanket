@@ -59,6 +59,71 @@ object DeviceAuth {
         showPrompt(activity)
     }
 
+    /**
+     * Asks for a fresh confirmation even though the app is already unlocked.
+     * Uses biometrics when enrolled, otherwise the phone PIN/pattern/password.
+     */
+    fun confirmIdentity(
+        activity: AppCompatActivity,
+        title: String,
+        subtitle: String,
+        onConfirmed: () -> Unit
+    ) {
+        if (promptShowing || activity.isFinishing) return
+        registerLifecycle(activity.application)
+
+        val biometricsEnrolled = BiometricManager.from(activity)
+            .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+        if (!biometricsEnrolled && !isDeviceSecure(activity)) {
+            showNoLockDialog(activity)
+            return
+        }
+
+        promptShowing = true
+        val prompt = BiometricPrompt(
+            activity,
+            ContextCompat.getMainExecutor(activity),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    promptShowing = false
+                    if (activity.isFinishing || activity.isDestroyed) return
+                    onConfirmed()
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    promptShowing = false
+                    // The prompt kept the app unlocked while it was up; if the app was
+                    // backgrounded in the meantime, lock it now.
+                    if (startedActivities <= 0) {
+                        unlocked = false
+                        pendingUnlocks.clear()
+                    }
+                }
+            }
+        )
+
+        val builder = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title)
+            .setSubtitle(subtitle)
+
+        if (biometricsEnrolled) {
+            builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+            builder.setNegativeButtonText(activity.getString(android.R.string.cancel))
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            builder.setAllowedAuthenticators(BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+        } else {
+            @Suppress("DEPRECATION")
+            builder.setDeviceCredentialAllowed(true)
+        }
+
+        try {
+            prompt.authenticate(builder.build())
+        } catch (_: Exception) {
+            promptShowing = false
+        }
+    }
+
     private fun registerLifecycle(app: Application) {
         if (lifecycleRegistered) return
         lifecycleRegistered = true

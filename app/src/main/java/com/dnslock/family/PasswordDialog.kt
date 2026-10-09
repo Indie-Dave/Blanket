@@ -37,7 +37,7 @@ object PasswordDialog {
         }
     }
 
-    private fun showNewPasswordEntry(context: Context, onSuccess: () -> Unit) {
+    fun showNewPasswordEntry(context: Context, onSuccess: () -> Unit) {
         val container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = ViewGroup.LayoutParams(

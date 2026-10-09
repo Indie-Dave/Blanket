@@ -66,6 +66,9 @@
     <string name="password_incorrect">Incorrect password</string>
     <string name="password_set_success">Password saved</string>
     <string name="password_required">Please set a password first</string>
+    <string name="reset_password_device_auth">Change password with biometrics or PIN</string>
+    <string name="reset_password_prompt_title">Confirm it\'s you</string>
+    <string name="reset_password_prompt_subtitle">Verify to change the Blanket password</string>
     <string name="device_lock_title">Unlock Blanket</string>
     <string name="device_lock_subtitle">Use your phone PIN, password, pattern, or biometrics</string>
     <string name="device_lock_not_set_title">Screen lock required</string>

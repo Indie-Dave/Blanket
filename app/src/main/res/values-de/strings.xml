@@ -66,6 +66,9 @@
     <string name="password_incorrect">Falsches Passwort</string>
     <string name="password_set_success">Passwort gespeichert</string>
     <string name="password_required">Bitte zuerst ein Passwort festlegen</string>
+    <string name="reset_password_device_auth">Passwort per Biometrie oder PIN ändern</string>
+    <string name="reset_password_prompt_title">Identität bestätigen</string>
+    <string name="reset_password_prompt_subtitle">Bestätigen, um das Blanket-Passwort zu ändern</string>
     <string name="device_lock_title">Blanket entsperren</string>
     <string name="device_lock_subtitle">Nutze PIN, Passwort, Muster oder Biometrie</string>
     <string name="device_lock_not_set_title">Displaysperre erforderlich</string>

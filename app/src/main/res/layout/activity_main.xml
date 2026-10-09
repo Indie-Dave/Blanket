@@ -93,6 +93,14 @@
             android:layout_marginBottom="16dp"
             android:text="@string/set_password" />
 
+        <Button
+            android:id="@+id/resetPasswordButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:text="@string/reset_password_device_auth"
+            android:visibility="gone" />
+
         <com.google.android.material.switchmaterial.SwitchMaterial
             android:id="@+id/dnsScreenLockSwitch"
             android:layout_width="match_parent"

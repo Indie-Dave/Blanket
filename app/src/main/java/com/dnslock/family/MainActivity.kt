@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private var blockListsExpanded = false
     private lateinit var passwordStatusText: TextView
     private lateinit var setPasswordButton: Button
+    private lateinit var resetPasswordButton: Button
     private lateinit var dnsScreenLockSwitch: SwitchMaterial
     private lateinit var dnsLockStatusText: TextView
     private lateinit var unlockDnsButton: Button
@@ -77,6 +78,7 @@ class MainActivity : AppCompatActivity() {
         blockedKeywordsListContainer = findViewById(R.id.blockedKeywordsListContainer)
         passwordStatusText = findViewById(R.id.passwordStatusText)
         setPasswordButton = findViewById(R.id.setPasswordButton)
+        resetPasswordButton = findViewById(R.id.resetPasswordButton)
         dnsScreenLockSwitch = findViewById(R.id.dnsScreenLockSwitch)
         dnsLockStatusText = findViewById(R.id.dnsLockStatusText)
         unlockDnsButton = findViewById(R.id.unlockDnsButton)
@@ -121,6 +123,16 @@ class MainActivity : AppCompatActivity() {
 
         setPasswordButton.setOnClickListener {
             PasswordDialog.showSetPassword(this) { refreshPasswordAndDnsStatus() }
+        }
+
+        resetPasswordButton.setOnClickListener {
+            DeviceAuth.confirmIdentity(
+                this,
+                getString(R.string.reset_password_prompt_title),
+                getString(R.string.reset_password_prompt_subtitle)
+            ) {
+                PasswordDialog.showNewPasswordEntry(this) { refreshPasswordAndDnsStatus() }
+            }
         }
 
         dnsScreenLockSwitch.setOnCheckedChangeListener { _, isChecked ->
@@ -278,6 +290,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             getString(R.string.set_password)
         }
+        resetPasswordButton.visibility = if (passwordSet) View.VISIBLE else View.GONE
 
         val dnsLockEnabled = PasswordManager.isDnsScreenLockEnabled(this)
         revertDnsSwitch(dnsLockEnabled)
